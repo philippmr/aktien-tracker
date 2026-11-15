@@ -114,3 +114,37 @@ def fetch(lookback_days: int, log=print) -> list[dict]:
             })
     log(f"  Senat: {len(reports)} Meldungen, {len(trades)} Transaktionen, {skipped} Scans übersprungen")
     return trades
+
+
+# --------------------------------------------------------------------------- Datei vom eigenen Rechner
+CSV_FILE = os.path.join("state", "senate_trades.csv")
+
+
+def from_csv(lookback_days: int, log=print) -> list[dict]:
+    """Senats-Trades, die senate_sync.py auf deinem Rechner geladen und ins Repo gepusht hat."""
+    if not os.path.exists(CSV_FILE):
+        return []
+    import pandas as pd
+    df = pd.read_csv(CSV_FILE, dtype={"ticker": str, "filing_id": str})
+    for c in ("filed", "tx_date"):
+        df[c] = pd.to_datetime(df[c], errors="coerce").dt.date
+    since = dt.date.today() - dt.timedelta(days=lookback_days)
+    df = df[df["filed"].notna() & (df["filed"] >= since)]
+    df = df.astype(object).where(df.notna(), None)
+    age = (dt.date.today() - dt.date.fromtimestamp(os.path.getmtime(CSV_FILE))).days
+    log(f"  Senat: {len(df)} Transaktionen aus {CSV_FILE} (vom eigenen Rechner)")
+    return df.to_dict("records")
+
+
+def save_csv(trades: list[dict]) -> int:
+    import pandas as pd
+    os.makedirs(os.path.dirname(CSV_FILE), exist_ok=True)
+    df = pd.DataFrame(trades)
+    if os.path.exists(CSV_FILE):  # mit bestehenden Daten zusammenführen, Duplikate raus
+        old = pd.read_csv(CSV_FILE, dtype={"ticker": str, "filing_id": str})
+        df = pd.concat([old, df.astype(str)], ignore_index=True)
+    key = ["filing_id", "person", "ticker", "asset", "tx_date", "type", "amount_low"]
+    df = df.astype(str).drop_duplicates(subset=[k for k in key if k in df.columns], keep="last")
+    df = df.replace({"None": "", "nan": ""}).sort_values(["filed", "person"], ascending=False)
+    df.to_csv(CSV_FILE, index=False)
+    return len(df)

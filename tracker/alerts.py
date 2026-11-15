@@ -200,11 +200,11 @@ def log_signals(ranking: pd.DataFrame) -> None:
     combined.to_csv(SIGNAL_LOG, index=False)
 
 
-def weekly_review(prices_now: dict, spy_hist: pd.Series) -> tuple[str, str] | None:
+def weekly_review(prices_now: dict, spy_hist: pd.Series, pf: dict | None = None) -> tuple[str, str] | None:
     """Wie haben sich die starken Signale seit ihrer Meldung entwickelt (vs. S&P 500)?"""
     from tracker import newsletter
     if not os.path.exists(SIGNAL_LOG):
-        return None
+        return newsletter.weekly(pd.DataFrame(), pf) if pf and pf.get("n") else None
     log_ = pd.read_csv(SIGNAL_LOG, parse_dates=["date"])
     log_ = log_[log_["date"] >= pd.Timestamp.today() - pd.Timedelta(days=180)]
     rows = []
@@ -217,9 +217,9 @@ def weekly_review(prices_now: dict, spy_hist: pd.Series) -> tuple[str, str] | No
         ret = now / r["price"] - 1
         rows.append({**r.to_dict(), "ret": ret, "excess": ret - spy_ret,
                      "days": (pd.Timestamp.today() - r["date"]).days})
-    if not rows:
+    if not rows and not (pf and pf.get("n")):
         return None
-    return newsletter.weekly(pd.DataFrame(rows))
+    return newsletter.weekly(pd.DataFrame(rows), pf)
 
 
 # --------------------------------------------------------------------------- Fehler-Mail
@@ -247,7 +247,8 @@ def auto(current, ranking, dashboard_path, prices, log=print) -> None:
 
     if now.weekday() == 0 and now.hour >= DIGEST_HOUR and meta.get("last_weekly") != today:
         last = {t: prices[t].dropna().iloc[-1] for t in prices.columns if prices[t].notna().any()}
-        review = weekly_review(last, prices["SPY"].dropna())
+        from tracker import portfolio
+        review = weekly_review(last, prices["SPY"].dropna(), portfolio.summary(portfolio._load(), prices))
         if review:
             send(*review)
             log("  Wochenrückblick verschickt")

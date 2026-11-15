@@ -60,6 +60,40 @@ python -m pytest -q            # Tests
 
 Für die Papiermeldungen muss Tesseract installiert sein (`apt install tesseract-ocr` bzw. `brew install tesseract`).
 
+## Senat über den eigenen Rechner
+
+Die Senatsseite blockt Cloud-Server, auch GitHub. Deshalb gibt es `senate_sync.py`: Es läuft auf deinem Rechner,
+lädt die Senats-Meldungen, speichert sie in `state/senate_trades.csv` und pusht die Datei. Der Workflow liest sie
+bei jedem Lauf mit ein. Läuft das Skript ein paar Tage nicht, fehlen nur die neuesten Senats-Trades.
+
+**Einmalig einrichten:**
+
+```bash
+git clone https://github.com/philippmr/aktien-tracker.git
+cd aktien-tracker
+pip install -r requirements.txt
+python senate_sync.py --no-push   # Test: lädt nur, pusht nicht
+python senate_sync.py             # lädt und pusht
+```
+
+**Täglich automatisch:**
+
+- **Mac/Linux** (`crontab -e`, täglich 6:40 Uhr):
+  ```
+  40 6 * * * cd /PFAD/ZU/aktien-tracker && /usr/bin/env python3 senate_sync.py >> senate.log 2>&1
+  ```
+- **Windows** (Aufgabenplanung → Einfache Aufgabe erstellen → täglich 6:40 → Programm starten):
+  Programm `python`, Argumente `senate_sync.py`, Starten in `C:\PFAD\ZU\aktien-tracker`.
+
+Der Rechner muss dafür an sein; verpasste Tage holt das Skript beim nächsten Lauf nach (es lädt immer 120 Tage).
+
+## Musterdepot
+
+Das Tool folgt seinen eigenen Signalen nach festen Regeln: Jede Aktie, die neu mit Score ≥ 60 auftaucht, wird für 1.000 $
+zum nächsten Schlusskurs „gekauft“ und nach 90 Tagen verkauft. Zum Vergleich wird derselbe Betrag am selben Tag in den
+S&P 500 gesteckt. Wertkurve und Positionen stehen im Dashboard (Tab „Musterdepot“) und im Wochenrückblick.
+Daneben zeigt eine Simulation 2023 bis heute, wie diese Regeln in der Vergangenheit abgeschnitten hätten.
+
 ## Backtest und Scoring
 
 `python run.py --backtest` wertet alle gemeldeten Käufe seit 2023 aus: Einstieg am ersten Handelstag **nach der Meldung**,
@@ -93,8 +127,8 @@ Wachstum, Bilanz; nicht im Backtest prüfbar, weil es keine historischen Werte g
 ## Grenzen
 
 - Beträge sind nur Spannen; Meldungen kommen bis zu 45 Tage verspätet.
-- **Senat:** Die Senatsseite blockt Cloud-Server; von einem normalen Internetanschluss aus sollte es gehen
-  (`SENATE_ACCEPT_TERMS` in `config.py`). Alternativ eine kostenpflichtige Quelle.
+- **Senat:** nur über `senate_sync.py` auf deinem Rechner (siehe oben). Das Skript ist nicht gegen die Live-Seite
+  getestet, weil sie Cloud-Server blockt. Wenn es beim ersten Lauf Fehler zeigt, schick mir die Ausgabe.
 - **Papiermeldungen:** OCR erkennt die Aktien, aber nicht zuverlässig Kauf/Verkauf und Betrag. Sie erscheinen im
   Feed als „Unklar (Scan)“ und zählen nicht für Score und Mail.
 - **OGE:** nur direkt verlinkte Berichte; die des Präsidenten sind Scans (OCR), im Zweifel gilt das PDF.

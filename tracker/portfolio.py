@@ -1,0 +1,195 @@
+"""Musterdepot: Folgt den Signalen des Trackers nach festen Regeln und misst das Ergebnis
+gegen den S&P 500. So zeigt sich ab heute in Echtzeit, ob das System funktioniert.
+
+Regeln (aus dem Backtest abgeleitet):
+- Kauf: jede Aktie, die neu mit Gesamt-Score >= MIN_SCORE im Ranking auftaucht,
+  für POSITION_USD zum ersten Schlusskurs NACH dem Signaltag (so wie du es selbst kaufen könntest).
+- Verkauf: nach HOLD_DAYS Tagen zum Schlusskurs.
+- Vergleich: derselbe Betrag am selben Tag in SPY (S&P 500), am selben Tag verkauft.
+
+Zustand liegt in state/portfolio.csv (wird mit dem Workflow committet).
+"""
+import datetime as dt
+import json
+import math
+import os
+
+import pandas as pd
+
+FILE = os.path.join("state", "portfolio.csv")
+SIM_FILE = os.path.join("state", "portfolio_sim.json")
+MIN_SCORE = 60
+HOLD_DAYS = 90
+POSITION_USD = 1000
+COLS = ["ticker", "name", "signal_date", "score", "entry_date", "entry_price", "spy_entry",
+        "exit_date", "exit_price", "spy_exit", "status"]
+
+
+def _load() -> pd.DataFrame:
+    if os.path.exists(FILE):
+        return pd.read_csv(FILE, dtype={"ticker": str})
+    return pd.DataFrame(columns=COLS)
+
+
+def _close_after(s: pd.Series, day: dt.date):
+    """Erster Schlusskurs streng nach `day`."""
+    s = s.dropna()
+    a = s[s.index.date > day]
+    return (a.index[0].date(), float(a.iloc[0])) if len(a) else (None, None)
+
+
+def _close_on_or_after(s: pd.Series, day: dt.date):
+    s = s.dropna()
+    a = s[s.index.date >= day]
+    return (a.index[0].date(), float(a.iloc[0])) if len(a) else (None, None)
+
+
+def update(ranking: pd.DataFrame, prices: pd.DataFrame, log=print) -> pd.DataFrame:
+    """Neue Signale aufnehmen, Einstiege/Ausstiege mit Kursen füllen, speichern."""
+    pf = _load()
+    today = dt.date.today()
+    spy = prices["SPY"]
+    held = set(pf.loc[pf["status"].isin(["offen", "wartet"]), "ticker"])
+
+    # 1) neue Signale
+    if len(ranking):
+        new = ranking[(ranking["score"] >= MIN_SCORE) & ~ranking["ticker"].isin(held)]
+        rows = [{"ticker": r.ticker, "name": r.name, "signal_date": today.isoformat(), "score": r.score,
+                 "status": "wartet"} for r in new.itertuples()]
+        if rows:
+            pf = pd.concat([pf, pd.DataFrame(rows)], ignore_index=True)
+            log(f"  Musterdepot: {len(rows)} neue Signale ({', '.join(new['ticker'])})")
+
+    # 2) Einstieg zum ersten Schlusskurs nach dem Signal
+    for i, r in pf[pf["status"] == "wartet"].iterrows():
+        if r["ticker"] not in prices.columns:
+            continue
+        sig = dt.date.fromisoformat(str(r["signal_date"]))
+        d, p = _close_after(prices[r["ticker"]], sig)
+        _, sp = _close_after(spy, sig)
+        if d and sp:
+            pf.loc[i, ["entry_date", "entry_price", "spy_entry", "status"]] = [d.isoformat(), p, sp, "offen"]
+
+    # 3) Ausstieg nach HOLD_DAYS
+    for i, r in pf[pf["status"] == "offen"].iterrows():
+        entry = dt.date.fromisoformat(str(r["entry_date"]))
+        if (today - entry).days < HOLD_DAYS or r["ticker"] not in prices.columns:
+            continue
+        d, p = _close_on_or_after(prices[r["ticker"]], entry + dt.timedelta(days=HOLD_DAYS))
+        _, sp = _close_on_or_after(spy, entry + dt.timedelta(days=HOLD_DAYS))
+        if d and sp:
+            pf.loc[i, ["exit_date", "exit_price", "spy_exit", "status"]] = [d.isoformat(), p, sp, "geschlossen"]
+
+    os.makedirs(os.path.dirname(FILE), exist_ok=True)
+    pf[COLS].to_csv(FILE, index=False)
+    return pf
+
+
+def summary(pf: pd.DataFrame, prices: pd.DataFrame) -> dict:
+    """Kennzahlen + Wertkurve für Dashboard und Wochenmail."""
+    pf = pf[pf["status"].isin(["offen", "geschlossen"])].copy()
+    if pf.empty:
+        return {"positions": [], "curve": [], "n": 0}
+    spy = prices["SPY"].dropna()
+    pos = []
+    for r in pf.itertuples():
+        s = prices[r.ticker].dropna() if r.ticker in prices.columns else pd.Series(dtype=float)
+        last = float(r.exit_price) if r.status == "geschlossen" else (float(s.iloc[-1]) if len(s) else float(r.entry_price))
+        spy_last = float(r.spy_exit) if r.status == "geschlossen" else float(spy.iloc[-1])
+        ret, spy_ret = last / float(r.entry_price) - 1, spy_last / float(r.spy_entry) - 1
+        pos.append({"ticker": r.ticker, "name": r.name, "score": float(r.score), "entry_date": r.entry_date,
+                    "exit_date": r.exit_date if isinstance(r.exit_date, str) else None, "status": r.status,
+                    "ret": ret, "spy_ret": spy_ret, "excess": ret - spy_ret})
+    pos_df = pd.DataFrame(pos)
+    curve = _curve(pf, prices)
+    invested = len(pos_df) * POSITION_USD
+    return {
+        "n": len(pos_df), "open": int((pos_df["status"] == "offen").sum()),
+        "invested": invested,
+        "ret": float(pos_df["ret"].mean()), "spy_ret": float(pos_df["spy_ret"].mean()),
+        "excess": float(pos_df["excess"].mean()), "hit": float((pos_df["excess"] > 0).mean()),
+        "positions": pos_df.sort_values("entry_date", ascending=False).to_dict("records"),
+        "curve": curve,
+    }
+
+
+def _curve(pf: pd.DataFrame, prices: pd.DataFrame) -> list[dict]:
+    """Depotwert vs. SPY-Vergleichsdepot je Handelstag (eingesetztes Kapital = Summe der Käufe)."""
+    spy = prices["SPY"].dropna()
+    start = pd.Timestamp(min(pf["entry_date"]))
+    days = spy.index[spy.index >= start]
+    if len(days) == 0:
+        return []
+    val = pd.Series(0.0, index=days)
+    bench = pd.Series(0.0, index=days)
+    cash_in = pd.Series(0.0, index=days)
+    for r in pf.itertuples():
+        e = pd.Timestamp(r.entry_date)
+        x = pd.Timestamp(r.exit_date) if isinstance(r.exit_date, str) else None
+        if r.ticker not in prices.columns:
+            continue
+        # fehlende Kurse (Feiertage, Datenlücken, Delisting) mit dem letzten bekannten Kurs füllen
+        s = prices[r.ticker].reindex(days).ffill().fillna(float(r.entry_price))
+        sh, ssh = POSITION_USD / float(r.entry_price), POSITION_USD / float(r.spy_entry)
+        live = (days >= e) & ((days <= x) if x is not None else True)
+        after = (days > x) if x is not None else pd.Series(False, index=days).values
+        val += pd.Series(live, index=days) * s * sh
+        bench += pd.Series(live, index=days) * spy.reindex(days).ffill().bfill() * ssh
+        if x is not None:
+            val += pd.Series(after, index=days) * float(r.exit_price) * sh
+            bench += pd.Series(after, index=days) * float(r.spy_exit) * ssh
+        cash_in += pd.Series(days >= e, index=days) * POSITION_USD
+    out = []
+    step = max(1, len(days) // 120)  # höchstens ~120 Punkte für die Grafik
+    for d in list(days[::step]) + ([days[-1]] if (len(days) - 1) % step else []):
+        if cash_in[d] > 0:
+            out.append({"date": d.date().isoformat(), "depot": round(float(val[d] / cash_in[d] - 1), 4),
+                        "spy": round(float(bench[d] / cash_in[d] - 1), 4)})
+    return out
+
+
+def simulate(events: pd.DataFrame, prices: pd.DataFrame, min_score: float = 50,
+             fund: pd.DataFrame | None = None) -> dict:
+    """Simulation 2023–heute mit denselben Regeln auf Basis des Backtests (Politiker-Score ohne
+    Fundamentaldaten, weil es keine historischen gibt). Nur als Orientierung.
+    Wie im Live-Ranking nur echte Aktien (keine Fonds/ETFs) ab config.MIN_MARKET_CAP."""
+    import config
+    ok = None
+    if fund is not None and len(fund):
+        f = fund.reindex(events["ticker"].unique())
+        ok = set(f[(f["quoteType"] == "EQUITY") & (f["marketCap"] >= config.MIN_MARKET_CAP)].index)
+    ev = events[(events.get("ps", pd.Series(0, index=events.index)) >= min_score)
+                & ~events["small_cap"].fillna(False)]
+    if ok is not None:
+        ev = ev[ev["ticker"].isin(ok)]
+    ev = ev.sort_values("filed")
+    rows, held_until = [], {}
+    spy = prices["SPY"]
+    for r in ev.itertuples():
+        if r.ticker not in prices.columns or held_until.get(r.ticker, dt.date.min) >= r.filed:
+            continue
+        d, p = _close_after(prices[r.ticker], r.filed)
+        _, sp = _close_after(spy, r.filed)
+        if not d:
+            continue
+        xd, xp = _close_on_or_after(prices[r.ticker], d + dt.timedelta(days=HOLD_DAYS))
+        _, xsp = _close_on_or_after(spy, d + dt.timedelta(days=HOLD_DAYS))
+        rows.append({"ticker": r.ticker, "name": r.ticker, "signal_date": r.filed.isoformat(), "score": r.ps,
+                     "entry_date": d.isoformat(), "entry_price": p, "spy_entry": sp,
+                     "exit_date": xd.isoformat() if xd else None, "exit_price": xp, "spy_exit": xsp,
+                     "status": "geschlossen" if xd else "offen"})
+        held_until[r.ticker] = d + dt.timedelta(days=HOLD_DAYS)
+    pf = pd.DataFrame(rows, columns=COLS)
+    res = summary(pf, prices)
+    res["positions"] = res["positions"][:200]
+    os.makedirs(os.path.dirname(SIM_FILE), exist_ok=True)
+    with open(SIM_FILE, "w") as f:
+        json.dump(res, f, default=lambda o: None if isinstance(o, float) and math.isnan(o) else str(o))
+    return res
+
+
+def load_sim() -> dict | None:
+    if os.path.exists(SIM_FILE):
+        with open(SIM_FILE) as f:
+            return json.load(f)
+    return None

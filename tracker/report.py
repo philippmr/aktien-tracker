@@ -25,7 +25,8 @@ def _records(df: pd.DataFrame) -> list[dict]:
     return [{k: _clean(v) for k, v in r.items()} for r in df.to_dict("records")]
 
 
-def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame, stats: dict) -> str:
+def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame, stats: dict,
+          portfolio: dict | None = None, simulation: dict | None = None) -> str:
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     stamp = dt.date.today().isoformat()
 
@@ -48,6 +49,8 @@ def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame
         "trades_by_ticker": by_ticker,
         "feed": _records(feed.head(3000)),
         "leaderboard": _records(leaderboard),
+        "portfolio": json.loads(json.dumps(portfolio or {}, default=_clean)),
+        "simulation": json.loads(json.dumps(simulation or {}, default=_clean)),
     }
     html = TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
     path = os.path.join(config.OUTPUT_DIR, "dashboard.html")
@@ -111,7 +114,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 <h1>Politiker-Insider-Tracker</h1>
 <div class="sub">Aktienkäufe von US-Kongress und Regierung · Ausschuss-/Ressort-Bezug · Trefferquote · Fundamentaldaten · Stand <span id="gen"></span> · <a href="backtest.html">Backtest: Wie gut ist der Score?</a></div>
 <div class="stats" id="stats"></div>
-<div class="tabs"><button class="tab on" data-t="rank">Aktien-Ranking</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button></div>
+<div class="tabs"><button class="tab on" data-t="rank">Aktien-Ranking</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button><button class="tab" data-t="pf">Musterdepot</button></div>
 
 <div id="rank">
  <div class="filters">
@@ -125,6 +128,14 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
   <label><input type="checkbox" id="fman"> Verwalter-Depots ausblenden</label>
  </div>
  <div class="card"><table id="rt"><thead></thead><tbody></tbody></table></div>
+</div>
+
+<div id="pf" hidden>
+ <p class="note" style="margin:0 0 10px">Regeln: Jede Aktie, die neu mit Score ≥ 60 auftaucht, wird für 1.000 $ zum nächsten Schlusskurs gekauft und nach 90 Tagen verkauft.
+ Vergleich: derselbe Betrag am selben Tag im S&amp;P 500. Kurve = Rendite auf das eingesetzte Kapital.</p>
+ <div id="pfLive"></div>
+ <h3 style="margin:22px 0 6px;font-size:16px">Simulation 2023 bis heute <span class="note">(gleiche Regeln, Politiker-Score ≥ 50 ohne Fundamentaldaten – nur zur Orientierung)</span></h3>
+ <div id="pfSim"></div>
 </div>
 
 <div id="pol" hidden>
@@ -165,7 +176,7 @@ try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.
 $("#gen").textContent = D.generated; $("#hz").textContent = D.horizon;
 $("#stats").innerHTML = Object.entries(D.stats).map(([k,v])=>`<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("");
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===b));
- ["rank","pol","feed"].forEach(id=>$("#"+id).hidden=b.dataset.t!==id);});
+ ["rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=b.dataset.t!==id);});
 
 // ------------------------------------------------------------- Aktien-Ranking
 const tags = r => (r.contracts?'<span class="tag c">Staatsauftrag</span>':'')+(r.has_committee?'<span class="tag">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
@@ -232,6 +243,28 @@ function renderPol(){const q=$("#pq").value.toLowerCase();
  const rows=D.leaderboard.filter(r=>!q||r.person.toLowerCase().includes(q)).sort((a,b)=>(a[pSort.k]>b[pSort.k]?1:-1)*pSort.dir);
  $("#pt tbody").innerHTML=rows.map(r=>`<tr>${PC.map(c=>`<td class="${c[3]?'num':''}">${c[2](r)}</td>`).join("")}</tr>`).join("");}
 $("#pq").oninput=renderPol; renderPol();
+
+// ------------------------------------------------------------- Musterdepot
+function chart(curve){
+ if(!curve||curve.length<2) return "";
+ const W=900,H=260,P=36, xs=curve.map((_,i)=>i), ys=curve.flatMap(c=>[c.depot,c.spy]);
+ const lo=Math.min(0,...ys), hi=Math.max(0,...ys), X=i=>P+i*(W-2*P)/(curve.length-1), Y=v=>H-P-(v-lo)*(H-2*P)/((hi-lo)||1);
+ const line=k=>curve.map((c,i)=>(i?"L":"M")+X(i).toFixed(1)+","+Y(c[k]).toFixed(1)).join("");
+ const ticks=[lo,0,hi].map(v=>`<text x="4" y="${Y(v)+4}" font-size="11" fill="currentColor" opacity=".6">${(v*100).toFixed(0)}%</text><line x1="${P}" x2="${W-P}" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" opacity=".12"/>`).join("");
+ const last=curve[curve.length-1];
+ return `<div class="card" style="padding:10px;color:var(--text)"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Wertkurve Musterdepot gegen S&P 500">${ticks}
+  <path d="${line("spy")}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/><path d="${line("depot")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+  <text x="${W-P}" y="${Y(last.depot)-6}" text-anchor="end" font-size="12" font-weight="700" fill="var(--accent)">Depot ${(last.depot*100).toFixed(1)}%</text>
+  <text x="${W-P}" y="${Y(last.spy)+16}" text-anchor="end" font-size="12" fill="var(--muted)">S&amp;P 500 ${(last.spy*100).toFixed(1)}%</text>
+  <text x="${P}" y="${H-10}" font-size="11" fill="currentColor" opacity=".6">${fmtDate(curve[0].date)}</text><text x="${W-P}" y="${H-10}" text-anchor="end" font-size="11" fill="currentColor" opacity=".6">${fmtDate(last.date)}</text></svg></div>`;}
+function pfBlock(p, live){
+ if(!p||!p.n) return `<div class="card" style="padding:14px">${live?"Das Musterdepot startet mit dem nächsten Signal ab Score 60 – hier erscheint dann die Wertkurve.":"Noch keine Simulation – wird beim nächsten Backtest (sonntags) berechnet."}</div>`;
+ const st=[["Käufe",p.n+(live?` (${p.open} offen)`:"")],["Ø Rendite je Kauf",fmtPct(p.ret)],["Ø S&P 500 gleicher Zeitraum",fmtPct(p.spy_ret)],["Ø Überrendite",fmtPct(p.excess)],["Schlagen den Markt",(p.hit*100).toFixed(0)+" %"]]
+  .map(([k,v])=>`<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+ const rows=(p.positions||[]).slice(0,live?100:40).map(r=>`<tr><td class="tk">${esc(r.ticker)}</td><td>${fmtDate(r.entry_date)}</td><td>${r.exit_date?fmtDate(r.exit_date):"offen"}</td>
+  <td class="num">${fmtNum(r.score,0)}</td><td class="num">${fmtPct(r.ret)}</td><td class="num">${fmtPct(r.spy_ret)}</td><td class="num"><b>${fmtPct(r.excess)}</b></td></tr>`).join("");
+ return `<div class="stats">${st}</div>${chart(p.curve)}<div class="card" style="margin-top:10px"><table class="mini" style="min-width:600px"><thead><tr><th>Aktie</th><th>Kauf</th><th>Verkauf</th><th class="num">Score</th><th class="num">Rendite</th><th class="num">S&amp;P 500</th><th class="num">Überrendite</th></tr></thead><tbody>${rows}</tbody></table></div>`;}
+$("#pfLive").innerHTML=pfBlock(D.portfolio,true); $("#pfSim").innerHTML=pfBlock(D.simulation,false);
 
 // ------------------------------------------------------------- Feed
 $("#ft thead").innerHTML="<tr><th>Trade</th><th>Gemeldet</th><th>Amt</th><th>Ticker</th><th>Asset</th><th>Politiker</th><th>Eigentümer</th><th>Art</th><th class='num'>Betrag</th><th>Beschreibung</th><th></th></tr>";

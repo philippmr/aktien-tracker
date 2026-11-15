@@ -116,3 +116,20 @@ def test_newsletter_renders():
                       "sector": "Technology", "reasons": ["Testgrund"], "n_buyers": 1}
     subject, body = newsletter.build(buys, buys.iloc[0:0], info, ["NVDA"])
     assert "NVDA" in subject and "Testgrund" in body and "15–50 Tsd $" in body
+
+
+# --------------------------------------------------------------------------- Senat (Datei vom eigenen Rechner)
+def test_senate_csv_roundtrip(tmp_path, monkeypatch):
+    from tracker.sources import senate
+    monkeypatch.setattr(senate, "CSV_FILE", str(tmp_path / "senate_trades.csv"))
+    t = {"source": "Senat", "person": "Jane Doe", "role": "Senator/in", "state_district": None,
+         "filed": dt.date.today(), "url": "https://efdsearch.senate.gov/x", "filing_id": "abc",
+         "filing_size": 2, "description": "", "ticker": "MSFT", "asset_type": "ST",
+         "asset": "Microsoft Corp", "owner": "Self", "type": "Kauf",
+         "tx_date": dt.date.today() - dt.timedelta(days=5), "amount_low": 15001, "amount_high": 50000}
+    assert senate.save_csv([t]) == 1
+    assert senate.save_csv([t]) == 1          # gleicher Trade erneut -> kein Duplikat
+    rows = senate.from_csv(30, log=lambda *a: None)
+    assert len(rows) == 1 and rows[0]["ticker"] == "MSFT" and rows[0]["type"] == "Kauf"
+    assert rows[0]["filed"] == dt.date.today()
+    assert float(rows[0]["amount_low"]) == 15001

@@ -15,7 +15,7 @@ import time
 import pandas as pd
 
 import config
-from tracker import alerts, fundamentals, performance, report, scoring
+from tracker import alerts, fundamentals, performance, portfolio, report, scoring
 from tracker.committees import Committees
 from tracker.sources import house, oge, senate
 
@@ -44,10 +44,13 @@ def main():
 
     print("1/5 Politiker-Trades laden (inkl. Historie seit", config.HISTORY_START_YEAR, ")")
     trades = house.fetch(history_days)
-    try:
-        trades += senate.fetch(history_days)
-    except Exception as e:  # Senats-Seite ist fragil, soll den Lauf nicht abbrechen
-        print(f"  Senat: Fehler ({e}), übersprungen")
+    senate_csv = senate.from_csv(history_days)   # vom eigenen Rechner (senate_sync.py)
+    trades += senate_csv
+    if not senate_csv:
+        try:
+            trades += senate.fetch(history_days)
+        except Exception as e:  # Senats-Seite ist fragil, soll den Lauf nicht abbrechen
+            print(f"  Senat: Fehler ({e}), übersprungen")
     try:
         trades += oge.fetch(history_days)
     except Exception as e:
@@ -79,11 +82,14 @@ def main():
         from tracker import backtest
         print("Backtest")
         bt_tickers = sorted(set(hist.loc[(hist["type"] == "Kauf") & hist["ticker"].notna(), "ticker"]))
-        ev = backtest.build_events(hist, prices, fundamentals.load(bt_tickers), committees)
+        bt_fund = fundamentals.load(bt_tickers)
+        ev = backtest.build_events(hist, prices, bt_fund, committees)
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         with open(os.path.join(config.OUTPUT_DIR, "backtest.html"), "w", encoding="utf-8") as f:
             f.write(backtest.report_html(ev))
         print(f"  {len(ev)} Ereignisse ausgewertet -> output/backtest.html")
+        sim = portfolio.simulate(ev, prices, 50, bt_fund)
+        print(f"  Musterdepot-Simulation: {sim['n']} Käufe, Ø Überrendite {sim.get('excess', 0) * 100:+.2f} %")
 
     print(f"4/5 Fundamentaldaten ({len(cur_tickers)} Aktien) & Scoring")
     fund = fundamentals.load(cur_tickers)
@@ -104,7 +110,12 @@ def main():
         "Bewertete Aktien": len(ranking),
         "Zeitraum": f"letzte {args.days} Tage",
     }
-    path = report.write(ranking, current, leaderboard, stats)
+    if args.auto:  # nur der Zeitplan-Lauf führt das Musterdepot fort
+        pf = portfolio.update(ranking, prices)
+    else:
+        pf = portfolio._load()
+    pf_summary = portfolio.summary(pf, prices)
+    path = report.write(ranking, current, leaderboard, stats, pf_summary, portfolio.load_sim())
     if args.auto:
         print("Automatik (Sofort-Alarm / Tagesmail / Wochenrückblick)")
         alerts.auto(current, ranking, path, prices)

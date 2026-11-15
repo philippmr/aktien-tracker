@@ -294,13 +294,30 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
     return subject, body
 
 
-def weekly(df: pd.DataFrame) -> tuple[str, str]:
-    """Wochenrückblick: Entwicklung aller starken Signale seit der ersten Meldung."""
-    df = df.sort_values("excess", ascending=False)
-    wins = (df["excess"] > 0).mean()
-    avg = df["excess"].mean()
-    rows = [_header("Wochenrückblick", f"So haben sich die {len(df)} starken Signale der letzten Monate entwickelt "
-                    f"– verglichen mit dem S&P 500 im selben Zeitraum.")]
+def weekly(df: pd.DataFrame, pf: dict | None = None) -> tuple[str, str]:
+    """Wochenrückblick: Musterdepot + Entwicklung aller starken Signale seit der ersten Meldung."""
+    has_sig = len(df) > 0
+    if has_sig:
+        df = df.sort_values("excess", ascending=False)
+    wins = (df["excess"] > 0).mean() if has_sig else float("nan")
+    avg = df["excess"].mean() if has_sig else float("nan")
+    rows = [_header("Wochenrückblick", "Musterdepot und die starken Signale der letzten Monate "
+                    "– jeweils verglichen mit dem S&amp;P 500 im selben Zeitraum.")]
+    if pf and pf.get("n"):
+        ex = pf["excess"]
+        rows.append(_section("Musterdepot", f"{pf['n']} Käufe · {pf['open']} offen"))
+        rows.append(
+            f"<tr><td style='padding:0 24px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' class='card' "
+            f"style='background:{CARD};border:1px solid {LINE};border-radius:14px'><tr>"
+            + "".join(f"<td width='33%' style='padding:12px 14px'><div class='mut' style='font-size:11px;color:{MUTED}'>{k}</div>"
+                      f"<div class='ink' style='font-size:22px;font-weight:800;color:{c}'>{v}</div></td>"
+                      for k, v, c in [("Ø Rendite je Kauf", f"{pf['ret'] * 100:+.1f} %", INK),
+                                      ("S&amp;P 500", f"{pf['spy_ret'] * 100:+.1f} %", INK),
+                                      ("Überrendite", f"{ex * 100:+.1f} %", GOOD if ex > 0 else "#b91c1c")])
+            + "</tr></table></td></tr>")
+    if not has_sig:
+        rows.append("<tr><td style='padding:20px 24px'></td></tr>")
+        return f"{BRAND} · Wochenrückblick", _shell(rows)
 
     def tile(label, value, sub, color=INK):
         return (f"<td class='tile' width='50%' valign='top' style='background:{CARD};border:1px solid {LINE};"
