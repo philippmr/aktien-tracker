@@ -87,10 +87,11 @@ python senate_sync.py             # lädt und pusht
 
 Der Rechner muss dafür an sein; verpasste Tage holt das Skript beim nächsten Lauf nach (es lädt immer 120 Tage).
 
-## Musterdepot
+## Musterdepots
 
-Das Tool folgt seinen eigenen Signalen nach festen Regeln: Jede Aktie, die neu mit Score ≥ 60 auftaucht, wird für 1.000 $
-zum nächsten Schlusskurs „gekauft“ und nach 90 Tagen verkauft. Zum Vergleich wird derselbe Betrag am selben Tag in den
+Das Tool folgt seinen eigenen Signalen nach festen Regeln, in zwei Depots: Das **Trade-Depot** kauft jede Aktie, die neu
+einen Trade-Score ≥ 70 erreicht, und verkauft nach 30 Tagen. Das **Halte-Depot** kauft ab Halte-Score ≥ 70 und hält 365 Tage.
+Gekauft wird jeweils für 1.000 $ zum nächsten Schlusskurs. Zum Vergleich wird derselbe Betrag am selben Tag in den
 S&P 500 gesteckt. Wertkurve und Positionen stehen im Dashboard (Tab „Musterdepot“) und im Wochenrückblick.
 Daneben zeigt eine Simulation 2023 bis heute, wie diese Regeln in der Vergangenheit abgeschnitten hätten.
 
@@ -108,21 +109,24 @@ Rendite nach 30/90/180 Tagen im Vergleich zum S&P 500. Jedes Merkmal nutzt nur W
 - Mit den neuen Gewichten schlugen die Top-20 % der Signale im Testzeitraum 2025/26 den Markt im Schnitt um +2,8 % (90 Tage),
   der Rest lag bei −0,9 %.
 
-**Politiker-Score (0–100), je Kauf:**
+### Zwei Scores: Trade und Halten
 
-| Signal | Punkte |
-|---|---|
-| Basis | 10 |
-| Betrag (logarithmisch, 8 Tsd. bis 1 Mio. $) | bis 25 |
-| Betrag ≥ 50 Tsd $ | +10 |
-| Call-Optionen | +8 |
-| Regierungsmitglied (OGE) | +5 |
-| Innerhalb von 14 Tagen gemeldet | +4 |
-| Sammelmeldung (≥ 15 Trades, meist Vermögensverwalter) | × 0,7 |
+Weil sich kurzfristige Trades und Buy & Hold unterschiedlich verhalten, bekommt jede Aktie zwei Scores (0–100).
+Beide stammen aus dem Backtest mit historischen Bilanzdaten der SEC, also so, wie die Zahlen zum Meldezeitpunkt bekannt waren.
 
-Mehrere Käufer addieren sich mit abnehmendem Gewicht (1 / 0,7 / 0,5 …), Verkäufe anderer Politiker geben Abzug,
-ältere Käufe werden abgewertet. **Gesamt-Score = 60 % Politiker + 40 % Fundamentaldaten** (Bewertung, Qualität,
-Wachstum, Bilanz; nicht im Backtest prüfbar, weil es keine historischen Werte gibt).
+| | Trade-Score (30 Tage) | Halte-Score (365 Tage) |
+|---|---|---|
+| Bestandteile | Politiker-Signal: Betrag, Cluster, Wiederholungskauf, Regierung, schnelle Meldung, Calls; Bonus bei Umsatzwachstum > 20 % | Cluster (20), Wiederholungskauf (20), Quartalsumsatz +15 % (35), operative Marge > 20 % (15), Betrag ≥ 50 Tsd $ (10) |
+| Score ≥ 70 im Backtest | Ø +2,8 % ggü. Markt in 30 Tagen, 58 % schlagen den Markt | Ø +15 % ggü. Markt nach 1 Jahr, 58 % schlagen den Markt |
+| Stabil? | 2023/24: +2,8 % · 2025/26: +2,8 % | 2023/24: +18 % · 2025/26: +13 % |
+| Musterdepot | Trade-Depot, Haltedauer 30 Tage | Halte-Depot, Haltedauer 365 Tage |
+
+Der angezeigte **Score** ist der höhere von beiden; Tags „Trade“ / „Halten“ zeigen, wofür sich eine Aktie eignet.
+Ausschuss-Bezug, Trefferquote, Trend, Profitabilität und Verschuldung hatten keinen stabilen Effekt und sind nur Hinweise.
+Die bisherige Fundamental-Bewertung (Yahoo) wird weiter angezeigt, fließt aber nicht mehr in den Score ein.
+
+**Wichtig:** 2023–2026 war ein von Tech- und Wachstumswerten getriebener Markt. Ob die Muster in anderen Phasen tragen,
+zeigen erst die Musterdepots.
 
 ## Grenzen
 

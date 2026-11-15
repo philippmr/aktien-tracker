@@ -55,6 +55,9 @@ class PoliticianSignals:
         self.median_size = h.groupby("person")["mid"].median().to_dict()
         # (Person, Ticker) -> frühestes Datum, an dem die Person die Aktie gehandelt hat
         self.first_seen = h.dropna(subset=["ticker"]).groupby(["person", "ticker"])["tx_date"].min().to_dict()
+        # Meldedaten früherer Käufe je (Person, Ticker) -> Wiederholungskäufe erkennen
+        b = h[(h["type"] == "Kauf") & h["ticker"].notna() & h["filed"].notna()]
+        self.buy_filed = b.groupby(["person", "ticker"])["filed"].apply(lambda x: sorted(set(x))).to_dict()
 
     def trade(self, row, sector, industry) -> tuple[float, list[str], dict]:
         """Punkte für EINEN Kauf + Begründungen + Merkmale fürs Dashboard."""
@@ -73,6 +76,14 @@ class PoliticianSignals:
             flags["call"] = True
         if row["source"] == "Exekutive":
             pts += 5                                              # Regierungskäufe liefen leicht besser
+        # Wiederholungskauf: dieselbe Person hat dieselbe Aktie schon in den 180 Tagen davor gekauft.
+        # Im Backtest stabil positiv: +1 Punkt nach 30 Tagen, +5 Punkte nach 365 Tagen.
+        earlier = [f for f in self.buy_filed.get((row["person"], row["ticker"]), [])
+                   if row.get("filed") and 0 < (row["filed"] - f).days <= 180]
+        if earlier:
+            pts += 8
+            why.append(f"{row['person']} kauft zum wiederholten Mal nach (Überzeugung)")
+            flags["repeat"] = True
         delay = (row["filed"] - row["tx_date"]).days if row.get("filed") and row.get("tx_date") else None
         if delay is not None and delay <= 14:
             pts += 4                                              # schnell gemeldet = Signal noch frisch
@@ -133,6 +144,7 @@ def insider_score(grp: pd.DataFrame, sig: PoliticianSignals, sector, industry):
             per_person[p] = (pts, why)
         flags["committee"].update(f.get("committee", []))
         flags["call"] |= bool(f.get("call"))
+        flags["repeat"] = flags.get("repeat", False) or bool(f.get("repeat"))
         flags["unusual_size"] |= bool(f.get("unusual_size"))
         flags["first_buy"] |= bool(f.get("first_buy"))
         flags["managed_only"] &= bool(f.get("managed"))
@@ -243,6 +255,21 @@ def rank(trades: pd.DataFrame, fund: pd.DataFrame, prices: pd.DataFrame, sig: Po
             if len(s) > 1:
                 perf = s.iloc[-1] / s.iloc[0] - 1
 
+        # ---- Zwei Scores aus dem Backtest (2023–2026, stabil in 2023/24 und 2025/26):
+        # Trade (30 Tage):   Politiker-Signal + starkes Umsatzwachstum
+        # Halten (365 Tage): Cluster, Wiederholungskauf, Quartalsumsatz-Wachstum, operative Marge, großer Betrag
+        g_ = lambda k: f.get(k) if isinstance(f.get(k), (int, float)) and not math.isnan(f.get(k)) else None
+        rev_g, op_m = g_("revenueGrowth"), g_("operatingMargins")
+        big = bool((buys.apply(_mid, axis=1) >= 50_000).any())
+        cluster = buys["person"].nunique() >= 2
+        trade_score = min(100.0, ins + (15 if rev_g is not None and rev_g > 0.20 else 0))
+        hold_score = (20 * cluster + 20 * bool(flags.get("repeat")) + 35 * (rev_g is not None and rev_g > 0.15)
+                      + 15 * (op_m is not None and op_m > 0.20) + 10 * big)
+        if rev_g is not None and rev_g > 0.15:
+            why = why + [f"Umsatz wächst {rev_g:.0%} ggü. Vorjahresquartal"]
+        if op_m is not None and op_m > 0.20:
+            why = why + [f"hohe operative Marge ({op_m:.0%})"]
+
         price, tgt = f.get("currentPrice"), f.get("targetMeanPrice")
         tr = flags.get("track")
         rows.append({
@@ -250,7 +277,11 @@ def rank(trades: pd.DataFrame, fund: pd.DataFrame, prices: pd.DataFrame, sig: Po
             "name": f.get("shortName") or grp["asset"].iloc[0],
             "sector": f.get("sector"),
             "industry": f.get("industry"),
-            "score": round(config.WEIGHT_INSIDER * ins + config.WEIGHT_FUNDAMENTAL * fs, 1),
+            "score": round(max(trade_score, hold_score), 1),
+            "trade_score": round(trade_score, 1),
+            "hold_score": round(float(hold_score), 1),
+            "horizon": "Trade" if trade_score >= hold_score else "Halten",
+            "repeat": bool(flags.get("repeat")),
             "insider_score": round(ins, 1),
             "fundamental_score": round(fs, 1),
             **{f"p_{k}": (round(v, 1) if v is not None else None) for k, v in pillars.items()},
@@ -285,4 +316,5 @@ def rank(trades: pd.DataFrame, fund: pd.DataFrame, prices: pd.DataFrame, sig: Po
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    return df.sort_values("score", ascending=False).reset_index(drop=True)
+    # Gleichstand (z. B. mehrere mit 100) nach dem Politiker-Signal auflösen
+    return df.sort_values(["score", "insider_score"], ascending=False).reset_index(drop=True)

@@ -1,13 +1,13 @@
-"""Musterdepot: Folgt den Signalen des Trackers nach festen Regeln und misst das Ergebnis
+"""Musterdepots: Folgen den Signalen des Trackers nach festen Regeln und messen das Ergebnis
 gegen den S&P 500. So zeigt sich ab heute in Echtzeit, ob das System funktioniert.
 
-Regeln (aus dem Backtest abgeleitet):
-- Kauf: jede Aktie, die neu mit Gesamt-Score >= MIN_SCORE im Ranking auftaucht,
-  für POSITION_USD zum ersten Schlusskurs NACH dem Signaltag (so wie du es selbst kaufen könntest).
-- Verkauf: nach HOLD_DAYS Tagen zum Schlusskurs.
-- Vergleich: derselbe Betrag am selben Tag in SPY (S&P 500), am selben Tag verkauft.
+Zwei Depots (siehe DEPOTS):
+- Trade-Depot:  Trade-Score >= 70, Haltedauer 30 Tage (kurzfristige Trades)
+- Halte-Depot:  Halte-Score >= 70, Haltedauer 365 Tage (Buy & Hold)
 
-Zustand liegt in state/portfolio.csv (wird mit dem Workflow committet).
+Kauf jeweils für POSITION_USD zum ersten Schlusskurs NACH dem Signaltag (so wie du es selbst
+kaufen könntest), Verkauf nach der Haltedauer. Vergleich: derselbe Betrag am selben Tag in SPY.
+Zustand liegt in state/portfolio_<depot>.csv (wird mit dem Workflow committet).
 """
 import datetime as dt
 import json
@@ -16,18 +16,24 @@ import os
 
 import pandas as pd
 
-FILE = os.path.join("state", "portfolio.csv")
-SIM_FILE = os.path.join("state", "portfolio_sim.json")
-MIN_SCORE = 60
-HOLD_DAYS = 90
+# Zwei Depots, Regeln aus dem Backtest:
+DEPOTS = {
+    "trade":  {"label": "Trade-Depot", "score": "trade_score", "min": 70, "hold": 30,
+               "file": os.path.join("state", "portfolio_trade.csv"),
+               "sim": os.path.join("state", "portfolio_trade_sim.json")},
+    "halten": {"label": "Halte-Depot", "score": "hold_score", "min": 70, "hold": 365,
+               "file": os.path.join("state", "portfolio_halten.csv"),
+               "sim": os.path.join("state", "portfolio_halten_sim.json")},
+}
 POSITION_USD = 1000
 COLS = ["ticker", "name", "signal_date", "score", "entry_date", "entry_price", "spy_entry",
         "exit_date", "exit_price", "spy_exit", "status"]
 
 
-def _load() -> pd.DataFrame:
-    if os.path.exists(FILE):
-        return pd.read_csv(FILE, dtype={"ticker": str})
+def _load(depot: str) -> pd.DataFrame:
+    f = DEPOTS[depot]["file"]
+    if os.path.exists(f):
+        return pd.read_csv(f, dtype={"ticker": str})
     return pd.DataFrame(columns=COLS)
 
 
@@ -44,21 +50,23 @@ def _close_on_or_after(s: pd.Series, day: dt.date):
     return (a.index[0].date(), float(a.iloc[0])) if len(a) else (None, None)
 
 
-def update(ranking: pd.DataFrame, prices: pd.DataFrame, log=print) -> pd.DataFrame:
+def update(ranking: pd.DataFrame, prices: pd.DataFrame, depot: str, log=print) -> pd.DataFrame:
     """Neue Signale aufnehmen, Einstiege/Ausstiege mit Kursen füllen, speichern."""
-    pf = _load()
+    cfg = DEPOTS[depot]
+    MIN_SCORE, HOLD_DAYS = cfg["min"], cfg["hold"]
+    pf = _load(depot)
     today = dt.date.today()
     spy = prices["SPY"]
     held = set(pf.loc[pf["status"].isin(["offen", "wartet"]), "ticker"])
 
     # 1) neue Signale
     if len(ranking):
-        new = ranking[(ranking["score"] >= MIN_SCORE) & ~ranking["ticker"].isin(held)]
-        rows = [{"ticker": r.ticker, "name": r.name, "signal_date": today.isoformat(), "score": r.score,
-                 "status": "wartet"} for r in new.itertuples()]
+        new = ranking[(ranking[cfg["score"]] >= MIN_SCORE) & ~ranking["ticker"].isin(held)]
+        rows = [{"ticker": r["ticker"], "name": r["name"], "signal_date": today.isoformat(), "score": r[cfg["score"]],
+                 "status": "wartet"} for _, r in new.iterrows()]
         if rows:
             pf = pd.concat([pf, pd.DataFrame(rows)], ignore_index=True)
-            log(f"  Musterdepot: {len(rows)} neue Signale ({', '.join(new['ticker'])})")
+            log(f"  {cfg['label']}: {len(rows)} neue Signale ({', '.join(new['ticker'])})")
 
     # 2) Einstieg zum ersten Schlusskurs nach dem Signal
     for i, r in pf[pf["status"] == "wartet"].iterrows():
@@ -80,8 +88,8 @@ def update(ranking: pd.DataFrame, prices: pd.DataFrame, log=print) -> pd.DataFra
         if d and sp:
             pf.loc[i, ["exit_date", "exit_price", "spy_exit", "status"]] = [d.isoformat(), p, sp, "geschlossen"]
 
-    os.makedirs(os.path.dirname(FILE), exist_ok=True)
-    pf[COLS].to_csv(FILE, index=False)
+    os.makedirs(os.path.dirname(cfg["file"]), exist_ok=True)
+    pf[COLS].to_csv(cfg["file"], index=False)
     return pf
 
 
@@ -148,18 +156,20 @@ def _curve(pf: pd.DataFrame, prices: pd.DataFrame) -> list[dict]:
     return out
 
 
-def simulate(events: pd.DataFrame, prices: pd.DataFrame, min_score: float = 50,
+def simulate(events: pd.DataFrame, prices: pd.DataFrame, depot: str,
              fund: pd.DataFrame | None = None) -> dict:
     """Simulation 2023–heute mit denselben Regeln auf Basis des Backtests (Politiker-Score ohne
     Fundamentaldaten, weil es keine historischen gibt). Nur als Orientierung.
     Wie im Live-Ranking nur echte Aktien (keine Fonds/ETFs) ab config.MIN_MARKET_CAP."""
     import config
+    cfg = DEPOTS[depot]
+    min_score, HOLD_DAYS = cfg["min"], cfg["hold"]
+    score_col = f"{depot}_proxy"
     ok = None
     if fund is not None and len(fund):
         f = fund.reindex(events["ticker"].unique())
         ok = set(f[(f["quoteType"] == "EQUITY") & (f["marketCap"] >= config.MIN_MARKET_CAP)].index)
-    ev = events[(events.get("ps", pd.Series(0, index=events.index)) >= min_score)
-                & ~events["small_cap"].fillna(False)]
+    ev = events[(events[score_col] >= min_score) & ~events["small_cap"].fillna(False)]
     if ok is not None:
         ev = ev[ev["ticker"].isin(ok)]
     ev = ev.sort_values("filed")
@@ -174,7 +184,7 @@ def simulate(events: pd.DataFrame, prices: pd.DataFrame, min_score: float = 50,
             continue
         xd, xp = _close_on_or_after(prices[r.ticker], d + dt.timedelta(days=HOLD_DAYS))
         _, xsp = _close_on_or_after(spy, d + dt.timedelta(days=HOLD_DAYS))
-        rows.append({"ticker": r.ticker, "name": r.ticker, "signal_date": r.filed.isoformat(), "score": r.ps,
+        rows.append({"ticker": r.ticker, "name": r.ticker, "signal_date": r.filed.isoformat(), "score": getattr(r, score_col),
                      "entry_date": d.isoformat(), "entry_price": p, "spy_entry": sp,
                      "exit_date": xd.isoformat() if xd else None, "exit_price": xp, "spy_exit": xsp,
                      "status": "geschlossen" if xd else "offen"})
@@ -182,14 +192,15 @@ def simulate(events: pd.DataFrame, prices: pd.DataFrame, min_score: float = 50,
     pf = pd.DataFrame(rows, columns=COLS)
     res = summary(pf, prices)
     res["positions"] = res["positions"][:200]
-    os.makedirs(os.path.dirname(SIM_FILE), exist_ok=True)
-    with open(SIM_FILE, "w") as f:
+    os.makedirs(os.path.dirname(cfg["sim"]), exist_ok=True)
+    with open(cfg["sim"], "w") as f:
         json.dump(res, f, default=lambda o: None if isinstance(o, float) and math.isnan(o) else str(o))
     return res
 
 
-def load_sim() -> dict | None:
-    if os.path.exists(SIM_FILE):
-        with open(SIM_FILE) as f:
-            return json.load(f)
+def load_sim(depot: str) -> dict | None:
+    f = DEPOTS[depot]["sim"]
+    if os.path.exists(f):
+        with open(f) as fh:
+            return json.load(fh)
     return None

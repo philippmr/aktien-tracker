@@ -204,7 +204,7 @@ def weekly_review(prices_now: dict, spy_hist: pd.Series, pf: dict | None = None)
     """Wie haben sich die starken Signale seit ihrer Meldung entwickelt (vs. S&P 500)?"""
     from tracker import newsletter
     if not os.path.exists(SIGNAL_LOG):
-        return newsletter.weekly(pd.DataFrame(), pf) if pf and pf.get("n") else None
+        return newsletter.weekly(pd.DataFrame(), pf) if pf and any(v.get("n") for v in pf.values()) else None
     log_ = pd.read_csv(SIGNAL_LOG, parse_dates=["date"])
     log_ = log_[log_["date"] >= pd.Timestamp.today() - pd.Timedelta(days=180)]
     rows = []
@@ -217,7 +217,7 @@ def weekly_review(prices_now: dict, spy_hist: pd.Series, pf: dict | None = None)
         ret = now / r["price"] - 1
         rows.append({**r.to_dict(), "ret": ret, "excess": ret - spy_ret,
                      "days": (pd.Timestamp.today() - r["date"]).days})
-    if not rows and not (pf and pf.get("n")):
+    if not rows and not (pf and any(v.get("n") for v in pf.values())):
         return None
     return newsletter.weekly(pd.DataFrame(rows), pf)
 
@@ -248,7 +248,8 @@ def auto(current, ranking, dashboard_path, prices, log=print) -> None:
     if now.weekday() == 0 and now.hour >= DIGEST_HOUR and meta.get("last_weekly") != today:
         last = {t: prices[t].dropna().iloc[-1] for t in prices.columns if prices[t].notna().any()}
         from tracker import portfolio
-        review = weekly_review(last, prices["SPY"].dropna(), portfolio.summary(portfolio._load(), prices))
+        depots = {cfg["label"]: portfolio.summary(portfolio._load(d), prices) for d, cfg in portfolio.DEPOTS.items()}
+        review = weekly_review(last, prices["SPY"].dropna(), depots)
         if review:
             send(*review)
             log("  Wochenrückblick verschickt")

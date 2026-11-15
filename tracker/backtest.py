@@ -19,7 +19,7 @@ import pandas as pd
 
 from tracker import scoring
 
-HORIZONS = (30, 90, 180)
+HORIZONS = (30, 90, 180, 365)
 
 
 def _entry_exit(series: pd.Series, start: dt.date, days: int):
@@ -68,7 +68,7 @@ def build_events(hist: pd.DataFrame, prices: pd.DataFrame, fund: pd.DataFrame, c
         ev[f"ret{hz}"] = [x[0] if x else np.nan for x in rets[hz]]
         ev[f"ex{hz}"] = [x[1] if x else np.nan for x in rets[hz]]
         # Ausreißer begrenzen (Penny-Stocks, Datenfehler), damit Mittelwerte aussagekräftig bleiben
-        ev[f"ex{hz}"] = ev[f"ex{hz}"].clip(-1, 1)
+        ev[f"ex{hz}"] = ev[f"ex{hz}"].clip(-1, 2 if hz >= 365 else 1)
 
     # --------- Merkmale, nur mit Wissen zum Meldezeitpunkt
     ev["delay"] = (pd.to_datetime(ev["filed"]) - pd.to_datetime(ev["tx_date"])).dt.days
@@ -116,9 +116,44 @@ def build_events(hist: pd.DataFrame, prices: pd.DataFrame, fund: pd.DataFrame, c
         else:
             rel.append(False)
     ev["committee"] = rel
+    # Börsenwert ZUM MELDEZEITPUNKT (heutiger Wert × Kurs damals / Kurs heute), damit der Filter
+    # nicht nachträglich die Gewinner bevorzugt
     mc = fund["marketCap"] if "marketCap" in fund else pd.Series(dtype=float)
-    ev["small_cap"] = ev["ticker"].map(mc) < 2e9
+    hist_mc = []
+    for _, r in ev.iterrows():
+        m = mc.get(r["ticker"]) if r["ticker"] in mc.index else None
+        s_ = prices[r["ticker"]].dropna() if r["ticker"] in prices.columns else None
+        if m and s_ is not None and len(s_):
+            then = s_[s_.index.date <= r["filed"]]
+            hist_mc.append(m * then.iloc[-1] / s_.iloc[-1] if len(then) else np.nan)
+        else:
+            hist_mc.append(np.nan)
+    ev["mcap_hist"] = hist_mc
+    ev["small_cap"] = ev["mcap_hist"] < 2e9
+    # Wiederholungskauf: gleiche Person, gleiche Aktie, frühere Meldung in den 180 Tagen davor
+    rep = []
+    for _, r in ev.iterrows():
+        pg = by_person[r["person"]]
+        prev = pg[(pg["ticker"] == r["ticker"]) & (pg["filed"] < r["filed"])
+                  & (pg["filed"] >= r["filed"] - dt.timedelta(days=180))]
+        rep.append(len(prev) > 0)
+    ev["repeat"] = rep
+
+    # Historische Fundamentaldaten (SEC), wie sie zum Meldezeitpunkt bekannt waren
+    from tracker import secfacts
+    cik_map, cache, frows = secfacts._cik_map(), {}, []
+    for _, r in ev.iterrows():
+        if r["ticker"] not in cache:
+            try:
+                cache[r["ticker"]] = secfacts.load(r["ticker"], cik_map)
+            except Exception:
+                cache[r["ticker"]] = None
+        frows.append(secfacts.at(cache[r["ticker"]], r["filed"]))
+    ev = pd.concat([ev.reset_index(drop=True), pd.DataFrame(frows)], axis=1)
     ev["ps"] = politician_score(ev)
+    ev["trade_proxy"] = (ev["ps"] + 15 * (ev["rev_growth"] > 0.20)).clip(upper=100)
+    ev["halten_proxy"] = (20 * (ev["cluster"] >= 2) + 20 * ev["repeat"] + 35 * (ev["rev_growth_q"] > 0.15)
+                          + 15 * (ev["op_margin"] > 0.20) + 10 * (ev["mid"] >= 50_000))
     return ev
 
 
@@ -127,7 +162,7 @@ def politician_score(ev: pd.DataFrame) -> pd.Series:
     Cluster über die Zahl der Käufer in 30 Tagen statt über deren Einzelpunkte)."""
     size = ev["mid"].apply(lambda v: scoring._log_points(v, 8_000, 1_000_000, 25))
     p = (10 + size + 10 * (ev["mid"] >= 50_000) + 8 * ev["call"] + 5 * (ev["source"] == "Exekutive")
-         + 4 * (ev["delay"] <= 14))
+         + 4 * (ev["delay"] <= 14) + 8 * ev.get("repeat", False))
     p = p * np.where(ev["managed"], 0.7, 1.0)
     p = p * (1 + 0.42 * (ev["cluster"].clip(upper=4) - 1).clip(lower=0))
     return (p * scoring.SCALE).clip(upper=100)
@@ -150,7 +185,11 @@ FEATURES = {
     "self": "Selbst/gemeinsam gehandelt",
     "managed": "Sammelmeldung (Vermögensverwalter)",
     "executive": "Regierung (OGE)",
-    "small_cap": "Small Cap (< 2 Mrd $)",
+    "small_cap": "Small Cap (< 2 Mrd $ zum Meldezeitpunkt)",
+    "growth_q": "Quartalsumsatz +15 % ggü. Vorjahr (SEC)",
+    "op_margin_high": "Operative Marge > 20 % (SEC)",
+    "growth_y": "Jahresumsatz +20 % (SEC)",
+    "repeat": "Wiederholungskauf (gleiche Aktie, 180 Tage)",
     "fast": "Schnell gemeldet (≤ 14 Tage)",
 }
 
@@ -169,6 +208,9 @@ def analyse(ev: pd.DataFrame) -> dict:
     ev = ev.copy()
     ev["cluster2"] = ev["cluster"] >= 2
     ev["fast"] = ev["delay"] <= 14
+    ev["growth_q"] = ev.get("rev_growth_q", pd.Series(np.nan, index=ev.index)) > 0.15
+    ev["op_margin_high"] = ev.get("op_margin", pd.Series(np.nan, index=ev.index)) > 0.20
+    ev["growth_y"] = ev.get("rev_growth", pd.Series(np.nan, index=ev.index)) > 0.20
     out = {"overall": {hz: _stats(ev[f"ex{hz}"]) for hz in HORIZONS}, "features": [], "buckets": {}}
     for f, label in FEATURES.items():
         row = {"feature": f, "label": label}
@@ -198,9 +240,9 @@ def report_html(ev: pd.DataFrame) -> str:
     rows = []
     for r in a["features"]:
         y, n = r[90]
-        y2, n2 = r[180]
+        y2, n2 = r[365]
         d90 = y["mean"] - n["mean"] if y["n"] and n["n"] else float("nan")
-        d180 = y2["mean"] - n2["mean"] if y2["n"] and n2["n"] else float("nan")
+        d180 = y2["mean"] - n2["mean"] if y2["n"] and n2["n"] else float("nan")  # hier: 365 Tage
         rows.append(f"<tr><td>{r['label']}</td><td class='num'>{y['n']:,}</td><td class='num {cls(y['mean'])}'>{pct(y['mean'])}</td>"
                     f"<td class='num {cls(d90)}'><b>{pct(d90)}</b></td><td class='num {cls(d180)}'>{pct(d180)}</td></tr>".replace(",", "."))
     years = "".join(f"<tr><td>{yr}</td><td class='num'>{len(g)}</td><td class='num {cls(g['ex90'].mean())}'>{pct(g['ex90'].mean())}</td>"
@@ -230,13 +272,16 @@ a{{color:inherit}}
 <div class="stats">{overall}</div>
 <h2>Welche Merkmale helfen?</h2>
 <p class="muted">Differenz = Überrendite von Käufen mit diesem Merkmal minus Käufe ohne. Positiv heißt: Das Merkmal war ein gutes Zeichen.</p>
-<div class="card"><table><tr><th>Merkmal</th><th class="num">Fälle</th><th class="num">Ø 90 T</th><th class="num">Differenz 90 T</th><th class="num">Differenz 180 T</th></tr>{rows}</table></div>
-<h2>Weitere Erkenntnisse</h2>
+<div class="card"><table><tr><th>Merkmal</th><th class="num">Fälle</th><th class="num">Ø 90 T</th><th class="num">Differenz 90 T</th><th class="num">Differenz 365 T</th></tr>{rows}</table></div>
+<h2>Zwei Scores: Trade und Halten</h2>
 <div class="card" style="padding:4px 16px"><ul>
-<li><b>Haltedauer:</b> Für starke Signale (Politiker-Score ≥ 50) lag die Überrendite nach 30 Tagen bei rund +1,8 %, nach 90 Tagen bei +3,2 %. Das Musterdepot hält deshalb 90 Tage.</li>
-<li><b>Score-Schwellen:</b> Käufe mit Politiker-Score 50–70 schlugen den Markt nach 90 Tagen um 2,6–3,2 %, stabil in 2023/24 und 2025/26. Ab Score 70 sind das rund 56 Fälle pro Jahr (Sofort-Alarm).</li>
-<li><b>Verkäufe:</b> Nach großen Politiker-Verkäufen (≥ 50 Tsd $) lag die Aktie 90 Tage später im Schnitt 1,8 % hinter dem Markt. Das gibt im Score Abzug und eine Warnung für deine Watchlist.</li>
-<li><b>Kurs zwischen Kauf und Meldung:</b> Ist die Aktie vor der Meldung schon gestiegen, schadet das nicht. Kein Abzug.</li>
+<li><b>Trade-Score</b> (kurzfristig, 30 Tage): Politiker-Signal (Betrag, Cluster, Wiederholungskauf, Regierung, schnelle Meldung) plus Bonus bei über 20 % Umsatzwachstum.
+Score ≥ 70: Ø +2,8 % ggü. Markt in 30 Tagen, 58 % schlagen den Markt (2023/24: +2,8 %, 2025/26: +2,8 %).</li>
+<li><b>Halte-Score</b> (Buy &amp; Hold, 365 Tage): Cluster, Wiederholungskauf, Quartalsumsatz +15 %, operative Marge über 20 %, großer Betrag.
+Score ≥ 70: Ø +15 % ggü. Markt nach einem Jahr, 58 % schlagen den Markt (2023/24: +18 %, 2025/26: +13 %).</li>
+<li><b>Kein Effekt oder instabil:</b> Ausschuss-Bezug, Trefferquote des Politikers, Trend/200-Tage-Linie, Dip-Käufe, Profitabilität und Verschuldung.</li>
+<li><b>Vorsicht:</b> 2023–2026 war ein Tech-getriebener Markt; Wachstumswerte liefen überdurchschnittlich. Ob das in anderen Marktphasen trägt, zeigt erst das Musterdepot.</li>
+<li><b>Verkäufe:</b> Nach großen Politiker-Verkäufen (≥ 50 Tsd $) lag die Aktie 90 Tage später im Schnitt 1,8 % hinter dem Markt.</li>
 </ul></div>
 <h2>Nach Jahr</h2>
 <div class="card"><table><tr><th>Jahr</th><th class="num">Käufe</th><th class="num">Ø Überrendite 90 T</th><th class="num">Schlagen den Markt</th></tr>{years}</table></div>

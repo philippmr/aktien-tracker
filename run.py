@@ -88,8 +88,10 @@ def main():
         with open(os.path.join(config.OUTPUT_DIR, "backtest.html"), "w", encoding="utf-8") as f:
             f.write(backtest.report_html(ev))
         print(f"  {len(ev)} Ereignisse ausgewertet -> output/backtest.html")
-        sim = portfolio.simulate(ev, prices, 50, bt_fund)
-        print(f"  Musterdepot-Simulation: {sim['n']} Käufe, Ø Überrendite {sim.get('excess', 0) * 100:+.2f} %")
+        for depot in portfolio.DEPOTS:
+            sim = portfolio.simulate(ev, prices, depot, bt_fund)
+            print(f"  Simulation {portfolio.DEPOTS[depot]['label']}: {sim['n']} Käufe, "
+                  f"Ø Überrendite {sim.get('excess', 0) * 100:+.2f} %")
 
     print(f"4/5 Fundamentaldaten ({len(cur_tickers)} Aktien) & Scoring")
     fund = fundamentals.load(cur_tickers)
@@ -110,12 +112,13 @@ def main():
         "Bewertete Aktien": len(ranking),
         "Zeitraum": f"letzte {args.days} Tage",
     }
-    if args.auto:  # nur der Zeitplan-Lauf führt das Musterdepot fort
-        pf = portfolio.update(ranking, prices)
-    else:
-        pf = portfolio._load()
-    pf_summary = portfolio.summary(pf, prices)
-    path = report.write(ranking, current, leaderboard, stats, pf_summary, portfolio.load_sim())
+    depots = {}
+    for depot, cfg in portfolio.DEPOTS.items():
+        # nur der Zeitplan-Lauf führt die Musterdepots fort
+        pf = portfolio.update(ranking, prices, depot) if args.auto else portfolio._load(depot)
+        depots[depot] = {"label": cfg["label"], "min": cfg["min"], "hold": cfg["hold"],
+                         "live": portfolio.summary(pf, prices), "sim": portfolio.load_sim(depot)}
+    path = report.write(ranking, current, leaderboard, stats, depots)
     if args.auto:
         print("Automatik (Sofort-Alarm / Tagesmail / Wochenrückblick)")
         alerts.auto(current, ranking, path, prices)

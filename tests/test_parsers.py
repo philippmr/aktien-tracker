@@ -133,3 +133,22 @@ def test_senate_csv_roundtrip(tmp_path, monkeypatch):
     assert len(rows) == 1 and rows[0]["ticker"] == "MSFT" and rows[0]["type"] == "Kauf"
     assert rows[0]["filed"] == dt.date.today()
     assert float(rows[0]["amount_low"]) == 15001
+
+
+# --------------------------------------------------------------------------- SEC-Kennzahlen (historisch)
+def test_secfacts_only_uses_known_reports():
+    from tracker import secfacts
+    data = {  # (start, end, val, filed)
+        "revenue": [("2023-01-01", "2023-12-31", 100, "2024-02-15"), ("2022-01-01", "2022-12-31", 80, "2023-02-15"),
+                    ("2024-01-01", "2024-12-31", 150, "2025-02-15"),
+                    ("2024-04-01", "2024-06-30", 40, "2024-08-01"), ("2023-04-01", "2023-06-30", 30, "2023-08-01")],
+        "net_income": [("2023-01-01", "2023-12-31", 20, "2024-02-15")],
+        "op_income": [("2023-01-01", "2023-12-31", 25, "2024-02-15")],
+        "liabilities": [(None, "2023-12-31", 50, "2024-02-15")], "equity": [(None, "2023-12-31", 100, "2024-02-15")],
+        "ocf": [("2023-01-01", "2023-12-31", 30, "2024-02-15")], "capex": [("2023-01-01", "2023-12-31", 10, "2024-02-15")],
+    }
+    f = secfacts.at(data, dt.date(2024, 9, 1))      # Jahresbericht 2024 ist noch NICHT veröffentlicht
+    assert f["rev_growth"] == pytest.approx(0.25)    # 100 vs 80
+    assert f["rev_growth_q"] == pytest.approx(40 / 30 - 1)
+    assert f["op_margin"] == pytest.approx(0.25) and f["fcf_positive"] and f["liab_to_equity"] == 0.5
+    assert secfacts.at(data, dt.date(2025, 3, 1))["rev_growth"] == pytest.approx(0.5)  # jetzt bekannt

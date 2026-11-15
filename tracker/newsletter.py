@@ -172,7 +172,8 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
             f"<tr><td valign='top' style='color:{GOLD};font-size:14px;padding:3px 8px 3px 0'>●</td>"
             f"<td class='ink' style='font-size:14px;line-height:1.45;color:{INK};padding:3px 0'>{e(x)}</td></tr>"
             for x in (ti.get("reasons") or [])[:4])
-        ins_txt, fun_txt = f"{ti['insider_score']:.0f}", f"{ti['fundamental_score']:.0f}"
+        ins_txt = f"{ti.get('trade_score', ti['insider_score']):.0f}"
+        fun_txt = f"{ti.get('hold_score', ti['fundamental_score']):.0f}"
         perf = ti.get("perf_since_first_buy")
         perf_txt = "–" if perf is None or pd.isna(perf) else f"{perf * 100:+.1f} %"
 
@@ -197,7 +198,7 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
             f"<table role='presentation' cellspacing='0' cellpadding='0'>{reasons}</table>"
             f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0' class='line' "
             f"style='border-top:1px solid {LINE};margin-top:12px'><tr>"
-            f"{kpi('Politiker', ins_txt)}{kpi('Fundamental', fun_txt)}"
+            f"{kpi('Trade (30 T)', ins_txt)}{kpi('Halten (1 J)', fun_txt)}"
             f"{kpi('Käufer', ti.get('n_buyers', '–'))}{kpi('Seit Kauf', perf_txt)}</tr></table>"
             f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:12px'>Neu gekauft von: {e(buyers)}</div>"
             f"</td></tr></table></td></tr>")
@@ -280,8 +281,8 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
     rows.append(
         f"<tr><td style='padding:30px 24px 26px'><div class='line' style='border-top:1px solid {LINE};padding-top:16px'>"
         f"<div class='mut' style='font-size:12px;line-height:1.6;color:{MUTED}'>{link}"
-        f"Score 0–100: 60 % Politiker-Signal (Ausschuss-/Ressort-Bezug, Trefferquote, Betrag, Cluster) "
-        f"und 40 % Fundamentaldaten. Trades werden bis zu 45 Tage verspätet gemeldet; Beträge sind gesetzliche Spannen.<br>"
+        f"Score = der höhere von Trade-Score (kurzfristig, 30 Tage) und Halte-Score (Buy &amp; Hold, 1 Jahr), "
+        f"beide aus dem Backtest 2023–2026. Trades werden bis zu 45 Tage verspätet gemeldet; Beträge sind gesetzliche Spannen.<br>"
         f"Quellen: House Clerk, Senate eFD, Office of Government Ethics, Yahoo Finance.<br>"
         f"<b>Keine Anlageberatung.</b></div></div></td></tr>")
 
@@ -301,18 +302,20 @@ def weekly(df: pd.DataFrame, pf: dict | None = None) -> tuple[str, str]:
         df = df.sort_values("excess", ascending=False)
     wins = (df["excess"] > 0).mean() if has_sig else float("nan")
     avg = df["excess"].mean() if has_sig else float("nan")
-    rows = [_header("Wochenrückblick", "Musterdepot und die starken Signale der letzten Monate "
+    rows = [_header("Wochenrückblick", "Musterdepots und die starken Signale der letzten Monate "
                     "– jeweils verglichen mit dem S&amp;P 500 im selben Zeitraum.")]
-    if pf and pf.get("n"):
-        ex = pf["excess"]
-        rows.append(_section("Musterdepot", f"{pf['n']} Käufe · {pf['open']} offen"))
+    for label, d in (pf or {}).items():
+        if not d.get("n"):
+            continue
+        ex = d["excess"]
+        rows.append(_section(label, f"{d['n']} Käufe · {d['open']} offen"))
         rows.append(
             f"<tr><td style='padding:0 24px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' class='card' "
             f"style='background:{CARD};border:1px solid {LINE};border-radius:14px'><tr>"
             + "".join(f"<td width='33%' style='padding:12px 14px'><div class='mut' style='font-size:11px;color:{MUTED}'>{k}</div>"
                       f"<div class='ink' style='font-size:22px;font-weight:800;color:{c}'>{v}</div></td>"
-                      for k, v, c in [("Ø Rendite je Kauf", f"{pf['ret'] * 100:+.1f} %", INK),
-                                      ("S&amp;P 500", f"{pf['spy_ret'] * 100:+.1f} %", INK),
+                      for k, v, c in [("Ø Rendite je Kauf", f"{d['ret'] * 100:+.1f} %", INK),
+                                      ("S&amp;P 500", f"{d['spy_ret'] * 100:+.1f} %", INK),
                                       ("Überrendite", f"{ex * 100:+.1f} %", GOOD if ex > 0 else "#b91c1c")])
             + "</tr></table></td></tr>")
     if not has_sig:

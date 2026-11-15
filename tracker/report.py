@@ -26,7 +26,7 @@ def _records(df: pd.DataFrame) -> list[dict]:
 
 
 def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame, stats: dict,
-          portfolio: dict | None = None, simulation: dict | None = None) -> str:
+          depots: dict | None = None) -> str:
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     stamp = dt.date.today().isoformat()
 
@@ -49,8 +49,7 @@ def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame
         "trades_by_ticker": by_ticker,
         "feed": _records(feed.head(3000)),
         "leaderboard": _records(leaderboard),
-        "portfolio": json.loads(json.dumps(portfolio or {}, default=_clean)),
-        "simulation": json.loads(json.dumps(simulation or {}, default=_clean)),
+        "depots": json.loads(json.dumps(depots or {}, default=_clean).replace("NaN", "null")),
     }
     html = TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
     path = os.path.join(config.OUTPUT_DIR, "dashboard.html")
@@ -131,11 +130,9 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 </div>
 
 <div id="pf" hidden>
- <p class="note" style="margin:0 0 10px">Regeln: Jede Aktie, die neu mit Score ≥ 60 auftaucht, wird für 1.000 $ zum nächsten Schlusskurs gekauft und nach 90 Tagen verkauft.
- Vergleich: derselbe Betrag am selben Tag im S&amp;P 500. Kurve = Rendite auf das eingesetzte Kapital.</p>
- <div id="pfLive"></div>
- <h3 style="margin:22px 0 6px;font-size:16px">Simulation 2023 bis heute <span class="note">(gleiche Regeln, Politiker-Score ≥ 50 ohne Fundamentaldaten – nur zur Orientierung)</span></h3>
- <div id="pfSim"></div>
+ <p class="note" style="margin:0 0 10px">Zwei Depots nach festen Regeln: Jede Aktie, die neu den Schwellwert erreicht, wird für 1.000 $ zum nächsten Schlusskurs gekauft
+ und nach der Haltedauer verkauft. Vergleich: derselbe Betrag am selben Tag im S&amp;P 500. Kurve = Rendite auf das eingesetzte Kapital.</p>
+ <div id="pfDepots"></div>
 </div>
 
 <div id="pol" hidden>
@@ -184,14 +181,14 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{showTab(b.dataset.t)
 if(HASH[location.hash.slice(1)])showTab(HASH[location.hash.slice(1)]);
 
 // ------------------------------------------------------------- Aktien-Ranking
-const tags = r => (r.contracts?'<span class="tag c">Staatsauftrag</span>':'')+(r.has_committee?'<span class="tag">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
+const tags = r => (r.trade_score>=70?'<span class="tag c">Trade</span>':'')+(r.hold_score>=70?'<span class="tag c">Halten</span>':'')+(r.repeat?'<span class="tag">Nachkauf</span>':'')+(r.contracts?'<span class="tag c">Staatsauftrag</span>':'')+(r.has_committee?'<span class="tag">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
   (r.unusual_size?'<span class="tag">groß</span>':'')+(r.n_buyers>=2?'<span class="tag">Cluster</span>':'')+(r.managed_only?'<span class="tag">Verwalter</span>':'');
 const RC = [
  ["#","_rank",r=>r._rank,1],["Ticker","ticker",r=>`<span class="tk">${esc(r.ticker)}</span>`],
  ["Name","name",r=>`<div class="nm" title="${esc(r.name)}">${esc(r.name)}</div>`],
  ["Signale","has_committee",r=>tags(r)],
- ["Score","score",r=>bar(r.score),1],["Politiker","insider_score",r=>fmtNum(r.insider_score,0),1],
- ["Fundamental","fundamental_score",r=>fmtNum(r.fundamental_score,0),1],
+ ["Score","score",r=>bar(r.score),1],["Trade","trade_score",r=>fmtNum(r.trade_score,0),1],
+ ["Halten","hold_score",r=>fmtNum(r.hold_score,0),1],["Fundamental","fundamental_score",r=>fmtNum(r.fundamental_score,0),1],
  ["Käufer","n_buyers",r=>r.n_buyers,1],["Volumen (Mitte)","volume_mid",r=>fmtMoney(r.volume_mid),1],
  ["Bester Track Record","best_avg_excess",r=>r.best_avg_excess==null?"–":fmtPct(r.best_avg_excess)+` <span class="nm">(${(r.best_hit_rate*100).toFixed(0)} % Treffer)</span>`,1],
  ["Letzter Kauf","last_buy",r=>fmtDate(r.last_buy)],["Seit 1. Kauf","perf_since_first_buy",r=>fmtPct(r.perf_since_first_buy),1],
@@ -262,14 +259,17 @@ function chart(curve){
   <text x="${W-P}" y="${Y(last.depot)-6}" text-anchor="end" font-size="12" font-weight="700" fill="var(--accent)">Depot ${(last.depot*100).toFixed(1)}%</text>
   <text x="${W-P}" y="${Y(last.spy)+16}" text-anchor="end" font-size="12" fill="var(--muted)">S&amp;P 500 ${(last.spy*100).toFixed(1)}%</text>
   <text x="${P}" y="${H-10}" font-size="11" fill="currentColor" opacity=".6">${fmtDate(curve[0].date)}</text><text x="${W-P}" y="${H-10}" text-anchor="end" font-size="11" fill="currentColor" opacity=".6">${fmtDate(last.date)}</text></svg></div>`;}
-function pfBlock(p, live){
- if(!p||!p.n) return `<div class="card" style="padding:14px">${live?"Das Musterdepot startet mit dem nächsten Signal ab Score 60 – hier erscheint dann die Wertkurve.":"Noch keine Simulation – wird beim nächsten Backtest (sonntags) berechnet."}</div>`;
+function pfBlock(p, live, min){
+ if(!p||!p.n) return `<div class="card" style="padding:14px">${live?`Startet mit dem nächsten Signal ab Score ${min} – hier erscheint dann die Wertkurve.`:"Noch keine Simulation – wird beim nächsten Backtest (sonntags) berechnet."}</div>`;
  const st=[["Käufe",p.n+(live?` (${p.open} offen)`:"")],["Ø Rendite je Kauf",fmtPct(p.ret)],["Ø S&P 500 gleicher Zeitraum",fmtPct(p.spy_ret)],["Ø Überrendite",fmtPct(p.excess)],["Schlagen den Markt",(p.hit*100).toFixed(0)+" %"]]
   .map(([k,v])=>`<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
  const rows=(p.positions||[]).slice(0,live?100:40).map(r=>`<tr><td class="tk">${esc(r.ticker)}</td><td>${fmtDate(r.entry_date)}</td><td>${r.exit_date?fmtDate(r.exit_date):"offen"}</td>
   <td class="num">${fmtNum(r.score,0)}</td><td class="num">${fmtPct(r.ret)}</td><td class="num">${fmtPct(r.spy_ret)}</td><td class="num"><b>${fmtPct(r.excess)}</b></td></tr>`).join("");
  return `<div class="stats">${st}</div>${chart(p.curve)}<div class="card" style="margin-top:10px"><table class="mini" style="min-width:600px"><thead><tr><th>Aktie</th><th>Kauf</th><th>Verkauf</th><th class="num">Score</th><th class="num">Rendite</th><th class="num">S&amp;P 500</th><th class="num">Überrendite</th></tr></thead><tbody>${rows}</tbody></table></div>`;}
-$("#pfLive").innerHTML=pfBlock(D.portfolio,true); $("#pfSim").innerHTML=pfBlock(D.simulation,false);
+$("#pfDepots").innerHTML=Object.values(D.depots||{}).map(d=>`<h2 style="margin:26px 0 4px;font-size:19px">${esc(d.label)}</h2>
+ <div class="note" style="margin:0 0 8px">${d.label.startsWith("Trade")?"Trade-Score":"Halte-Score"} ≥ ${d.min} · Haltedauer ${d.hold} Tage</div>
+ <h3 style="margin:10px 0 6px;font-size:15px">Live seit Start</h3>${pfBlock(d.live,true,d.min)}
+ <h3 style="margin:18px 0 6px;font-size:15px">Simulation 2023 bis heute <span class="note">(gleiche Regeln auf historischen Daten – nur zur Orientierung)</span></h3>${pfBlock(d.sim,false,d.min)}`).join("");
 
 // ------------------------------------------------------------- Feed
 $("#ft thead").innerHTML="<tr><th>Trade</th><th>Gemeldet</th><th>Amt</th><th>Ticker</th><th>Asset</th><th>Politiker</th><th>Eigentümer</th><th>Art</th><th class='num'>Betrag</th><th>Beschreibung</th><th></th></tr>";
