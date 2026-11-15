@@ -2,7 +2,7 @@
 
 Screent die Aktienkäufe von US-Kongressmitgliedern und Regierungsmitgliedern, bewertet jede gekaufte Aktie
 mit einem **im Backtest geprüften Politiker-Signal** plus **Fundamentaldaten** und verschickt Mails:
-Tagesübersicht (mit Dashboard als Anhang), Sofort-Alarm bei sehr starken Signalen, Wochenrückblick.
+Tagesübersicht, Sofort-Alarm bei sehr starken Signalen, Wochenrückblick. Dazu ein Online-Dashboard.
 
 ## Datenquellen (alle kostenlos)
 
@@ -24,7 +24,7 @@ Tagesübersicht (mit Dashboard als Anhang), Sofort-Alarm bei sehr starken Signal
 | **⚡ Sofort-Alarm** bei neu gemeldeten Käufen mit Score ≥ 70 | bis zu alle 3 Stunden |
 | **Wochenrückblick**: Wie liefen die starken Signale seit ihrer Meldung? | montags |
 | **❗ Fehler-Mail**, wenn ein Lauf scheitert (z. B. Formatänderung einer Behörde) | sofort |
-| **Dashboard** (Ranking, Politiker-Trefferquoten, Feed) als Anhang jeder Tagesmail; Backtest-Seite unter *Actions → Lauf → Artifacts* | täglich |
+| **Online-Dashboard** mit Ranking, Politiker-Trefferquoten, Feed und Backtest-Seite | immer aktuell |
 
 ## Einrichtung (GitHub Actions)
 
@@ -38,7 +38,10 @@ Tagesübersicht (mit Dashboard als Anhang), Sofort-Alarm bei sehr starken Signal
    | `MAIL_TO` | Empfänger (optional, mehrere mit Komma) |
    | `WATCHLIST` | optional: deine Aktien, z. B. `AAPL,MSFT,NVDA`. Bei Politiker-Verkäufen kommt eine Warnung. Bleibt privat. |
 
-3. **Testen:** *Actions → Capitol Radar → Run workflow*, Haken bei „Beispiel-Mail“ setzen.
+3. **Dashboard online (GitHub Pages):** Repo öffentlich stellen (*Settings → General → Danger Zone → Change visibility*),
+   dann *Settings → Pages → Source: GitHub Actions*. Adresse: `https://<user>.github.io/<repo>/`.
+   Im Code und im Dashboard stehen keine Zugangsdaten und keine Watchlist.
+4. **Testen:** *Actions → Capitol Radar → Run workflow*, Haken bei „Beispiel-Mail“ setzen.
 
 Der Workflow läuft danach alle 3 Stunden. Vor jedem Lauf prüfen Tests (`tests/`), ob die Parser noch funktionieren.
 
