@@ -58,38 +58,41 @@ class PoliticianSignals:
 
     def trade(self, row, sector, industry) -> tuple[float, list[str], dict]:
         """Punkte für EINEN Kauf + Begründungen + Merkmale fürs Dashboard."""
+        # Gewichte aus dem Backtest 2023–2026 (python run.py --backtest). Was dort keine
+        # Vorhersagekraft hatte, gibt nur noch einen Hinweis, aber keine Punkte mehr.
         why, flags = [], {}
         pts = 10.0
         mid = _mid(row)
-        pts += _log_points(mid, 8_000, 500_000, 15)
+        pts += _log_points(mid, 8_000, 1_000_000, 25)          # Betrag: stärkstes Einzelsignal
         if mid >= 50_000:
+            pts += 10
             why.append(f"großer Betrag ({row['amount_low']:,.0f}–{row['amount_high']:,.0f} $)".replace(",", "."))
-
-        # Ungewöhnlich: Call-Optionen, Erstkauf, größer als üblich, selbst gehandelt
         if is_call(row):
-            pts += 12
+            pts += 8                                              # positiv, aber wenige Fälle
             why.append("kauft Call-Optionen (Wette auf steigende Kurse)")
             flags["call"] = True
+        if row["source"] == "Exekutive":
+            pts += 5                                              # Regierungskäufe liefen leicht besser
+        delay = (row["filed"] - row["tx_date"]).days if row.get("filed") and row.get("tx_date") else None
+        if delay is not None and delay <= 14:
+            pts += 4                                              # schnell gemeldet = Signal noch frisch
+            flags["fast"] = True
+
+        # Nur noch Hinweise (im Backtest ohne oder mit negativem Effekt)
         first = self.first_seen.get((row["person"], row["ticker"]))
         if first is not None and first >= row["tx_date"]:
-            pts += 5
             flags["first_buy"] = True
         usual = self.median_size.get(row["person"])
         if usual and mid > 2.5 * usual and mid >= 15_000:
-            pts += 6
             why.append(f"{row['person']}: {mid / usual:.0f}× größer als sonst üblich")
             flags["unusual_size"] = True
-        if row.get("owner") in ("Selbst", "Gemeinsam", "Self", "Joint"):
-            pts += 3
 
-        # Ausschuss-Bezug
         info = None
         if row["source"] == "Exekutive":
             from tracker.committees import agency_relevant
             rel = agency_relevant(row.get("role"), sector, industry)
             if rel:
-                pts += 20
-                why.append(f"{row['person']} ist zuständig: {rel}")
+                why.append(f"Hinweis: {row['person']} ist zuständig ({rel})")
                 flags["committee"] = [rel]
         elif self.committees is not None:
             chamber = "sen" if row["source"] == "Senat" else "rep"
@@ -98,27 +101,18 @@ class PoliticianSignals:
             flags["party"] = info["party"][:1]
             rel = self.committees.relevant_committees(info["bioguide"], sector, industry)
             if rel:
-                pts += 20
-                if any("(Chair" in r or "(Ranking" in r for r in rel):
-                    pts += 5
-                why.append(f"{row['person']} sitzt im zuständigen Ausschuss: {', '.join(rel)}")
+                why.append(f"Hinweis: {row['person']} sitzt im zuständigen Ausschuss ({', '.join(rel)})")
                 flags["committee"] = rel
 
-        # Trefferquote des Politikers
         if row["person"] in self.track.index:
             tr = self.track.loc[row["person"]]
             if tr["n"] >= config.TRACK_RECORD_MIN_TRADES:
-                reliability = min(1.0, tr["n"] / 20)
-                bonus = max(-10, min(15, tr["avg_excess"] * 100)) * reliability
-                pts += bonus
                 flags["track"] = (int(tr["n"]), float(tr["hit_rate"]), float(tr["avg_excess"]))
-                if bonus >= 3:
-                    why.append(f"{row['person']} schlägt den S&P 500 mit {tr['hit_rate']:.0%} der Käufe "
-                               f"(Ø {tr['avg_excess']:+.1%} nach {config.TRACK_RECORD_HORIZON_DAYS} T)")
 
-        # Sammelmeldung -> wahrscheinlich Vermögensverwalter, schwaches Signal
+        # Sammelmeldung -> meist Vermögensverwalter; leichter Abschlag, damit Großdepots
+        # (z. B. des Präsidenten) mit Hunderten Trades das Ranking nicht fluten
         if (row.get("filing_size") or 0) >= MANAGED_FILING_SIZE:
-            pts *= 0.5
+            pts *= 0.7
             flags["managed"] = True
         return pts, why, flags
 

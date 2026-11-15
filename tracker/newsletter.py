@@ -76,9 +76,56 @@ def _section(title, kicker=""):
             f"<div class='ink' style='font-size:19px;font-weight:800;color:{INK};margin-top:2px'>{title}</div></td></tr>")
 
 
-def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], dashboard_url=None) -> tuple[str, str]:
+def _shell(rows: list[str]) -> str:
+    return (f"{STYLE}<div class='page' style='background:{BG};padding:14px 0;margin:0;{FONT}'>"
+            f"<table role='presentation' align='center' width='100%' cellspacing='0' cellpadding='0' "
+            f"class='card' style='max-width:600px;margin:0 auto;background:{CARD};border-radius:16px;"
+            f"border:1px solid {LINE}'>{''.join(rows)}</table></div>")
+
+
+def _header(title: str, sub: str, dashboard_url=None) -> str:
+    btn = (f"<div style='margin-top:16px'><a href='{e(dashboard_url)}' style='display:inline-block;background:{GOLD};"
+           f"color:{NAVY};font-weight:800;font-size:14px;text-decoration:none;padding:10px 16px;border-radius:10px'>"
+           f"Dashboard öffnen →</a></div>") if dashboard_url else ""
+    return (f"<tr><td bgcolor='{NAVY}' style='background:{NAVY};background-image:linear-gradient(135deg,{NAVY} 0%,{NAVY2} 100%);"
+            f"padding:26px 24px 24px;border-radius:16px 16px 0 0'>"
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+            f"<td style='font-size:13px;font-weight:800;letter-spacing:2px;color:{GOLD}'>★ {BRAND.upper()}</td>"
+            f"<td align='right' style='font-size:12px;color:#c7d2fe'>{dt.date.today():%d.%m.%Y}</td></tr></table>"
+            f"<div class='h1' style='font-size:28px;line-height:1.2;font-weight:800;color:#ffffff;margin-top:14px'>{title}</div>"
+            f"<div style='font-size:14px;line-height:1.5;color:#c7d2fe;margin-top:6px'>{sub}</div>{btn}</td></tr>")
+
+
+def _watch_block(watch_sells: pd.DataFrame, watch_buys: pd.DataFrame) -> str:
+    """Hinweis-Box für Aktien aus deiner Watchlist (Secret WATCHLIST)."""
+    items = []
+    for t, g in watch_sells.groupby("ticker"):
+        who = ", ".join(e(p) for p in dict.fromkeys(g["person"]))
+        items.append(f"<li><b>{e(t)}</b>: <span style='color:#b91c1c'>Verkauf</span> durch {who} "
+                     f"({_span(g['amount_low'].sum(), g['amount_high'].fillna(g['amount_low']).sum())})</li>")
+    for t, g in watch_buys.groupby("ticker"):
+        who = ", ".join(e(p) for p in dict.fromkeys(g["person"]))
+        items.append(f"<li><b>{e(t)}</b>: <span style='color:{GOOD}'>Kauf</span> durch {who}</li>")
+    if not items:
+        return ""
+    return (f"<tr><td style='padding:18px 24px 0'><div style='background:#fff7ed;border:1px solid #fdba74;border-radius:14px;"
+            f"padding:12px 16px'><div style='font-size:13px;font-weight:800;color:#9a3412'>⚠ Deine Watchlist</div>"
+            f"<ul style='margin:6px 0 0;padding-left:18px;font-size:14px;line-height:1.5;color:#431407'>{''.join(items)}</ul>"
+            f"</div></td></tr>")
+
+
+def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], dashboard_url=None,
+          watch_sells=None, watch_buys=None) -> tuple[str, str]:
     """buys: neue Käufe (mit Spalte _score); info(ticker) -> Ranking-Zeile als dict."""
     today = dt.date.today()
+    empty = pd.DataFrame(columns=["ticker", "person", "amount_low", "amount_high"])
+    watch_sells = empty if watch_sells is None else watch_sells
+    watch_buys = empty if watch_buys is None else watch_buys
+    if buys.empty:  # nur Watchlist-Verkäufe
+        rows = [_header("Verkauf in deiner Watchlist", "Politiker haben Aktien verkauft, die du beobachtest.",
+                        dashboard_url), _watch_block(watch_sells, watch_buys),
+                "<tr><td style='padding:20px 24px'></td></tr>"]
+        return f"{BRAND} · ⚠ Watchlist: Verkauf {', '.join(dict.fromkeys(watch_sells['ticker']))}", _shell(rows)
     tickers = list(dict.fromkeys(buys["ticker"]))
     top = tickers[0]
     ti = info(top)
@@ -90,18 +137,11 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
     rows = []
 
     # ---------------------------------------------------------------- Kopf
-    rows.append(
-        f"<tr><td bgcolor='{NAVY}' style='background:{NAVY};background-image:linear-gradient(135deg,{NAVY} 0%,{NAVY2} 100%);"
-        f"padding:26px 24px 24px;border-radius:16px 16px 0 0'>"
-        f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
-        f"<td style='font-size:13px;font-weight:800;letter-spacing:2px;color:{GOLD}'>★ {BRAND.upper()}</td>"
-        f"<td align='right' style='font-size:12px;color:#c7d2fe'>{today:%d.%m.%Y}</td></tr></table>"
-        f"<div class='h1' style='font-size:28px;line-height:1.2;font-weight:800;color:#ffffff;margin-top:14px'>"
-        f"{len(buys)} neue Käufe aus Washington</div>"
-        f"<div style='font-size:14px;line-height:1.5;color:#c7d2fe;margin-top:6px'>"
-        f"{n_people} {'Politiker' if n_people != 1 else 'Politiker'} haben {len(tickers)} Aktien gekauft"
+    rows.append(_header(
+        f"{len(buys)} neue Käufe aus Washington",
+        f"{n_people} Politiker haben {len(tickers)} Aktien gekauft"
         f"{f' – darunter {gov} Regierungsmitglied' + ('er' if gov > 1 else '') if gov else ''}. "
-        f"Top-Signal heute: <b style='color:#ffffff'>{e(top)}</b>.</div></td></tr>")
+        f"Top-Signal heute: <b style='color:#ffffff'>{e(top)}</b>.", dashboard_url))
 
     # ---------------------------------------------------------------- 4 Kacheln
     def tile(label, value, sub, color=INK):
@@ -121,6 +161,8 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
         f"<tr><td style='padding:18px 24px 0'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'>"
         f"<tr>{t[0]}{gap}{t[1]}</tr><tr><td colspan='3' height='10' style='font-size:0;line-height:10px'>&nbsp;</td></tr>"
         f"<tr>{t[2]}{gap}{t[3]}</tr></table></td></tr>")
+
+    rows.append(_watch_block(watch_sells, watch_buys))
 
     # ---------------------------------------------------------------- Top-Signal des Tages
     if ti:
@@ -243,11 +285,60 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
         f"Quellen: House Clerk, Senate eFD, Office of Government Ethics, Yahoo Finance.<br>"
         f"<b>Keine Anlageberatung.</b></div></div></td></tr>")
 
-    body = (f"{STYLE}<div class='page' style='background:{BG};padding:14px 0;margin:0;{FONT}'>"
-            f"<table role='presentation' align='center' width='100%' cellspacing='0' cellpadding='0' "
-            f"class='card' style='max-width:600px;margin:0 auto;background:{CARD};border-radius:16px;"
-            f"border:1px solid {LINE}'>{''.join(rows)}</table></div>")
+    body = _shell(rows)
 
     subject = f"{BRAND} · {len(buys)} neue Käufe"
     subject += f" · Top: {top}" + (f" ({ti['score']:.0f})" if ti else "")
+    if len(watch_sells):
+        subject = "⚠ " + subject
     return subject, body
+
+
+def weekly(df: pd.DataFrame) -> tuple[str, str]:
+    """Wochenrückblick: Entwicklung aller starken Signale seit der ersten Meldung."""
+    df = df.sort_values("excess", ascending=False)
+    wins = (df["excess"] > 0).mean()
+    avg = df["excess"].mean()
+    rows = [_header("Wochenrückblick", f"So haben sich die {len(df)} starken Signale der letzten Monate entwickelt "
+                    f"– verglichen mit dem S&P 500 im selben Zeitraum.")]
+
+    def tile(label, value, sub, color=INK):
+        return (f"<td class='tile' width='50%' valign='top' style='background:{CARD};border:1px solid {LINE};"
+                f"border-radius:14px;padding:14px 16px'><div class='mut' style='font-size:11px;letter-spacing:1px;"
+                f"text-transform:uppercase;color:{MUTED};font-weight:700'>{label}</div><div class='big ink' "
+                f"style='font-size:32px;font-weight:800;color:{color}'>{value}</div>"
+                f"<div class='mut' style='font-size:12px;color:{MUTED}'>{sub}</div></td>")
+    gap = "<td width='10' style='width:10px'>&nbsp;</td>"
+    rows.append(f"<tr><td style='padding:18px 24px 0'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+                f"{tile('Schlagen den Markt', f'{wins:.0%}', f'von {len(df)} Signalen', GOOD if wins >= .5 else MID)}{gap}"
+                f"{tile('Ø Überrendite', f'{avg * 100:+.1f} %', 'vs. S&amp;P 500', GOOD if avg > 0 else '#b91c1c')}"
+                f"</tr></table></td></tr>")
+    rows.append(_section("Alle Signale", "Seit erster Meldung"))
+    lines = []
+    for _, r in df.head(40).iterrows():
+        col = GOOD if r["excess"] > 0 else "#b91c1c"
+        lines.append(f"<tr><td class='line' style='padding:9px 6px 9px 0;border-bottom:1px solid {LINE}'>"
+                     f"<b class='ink' style='color:{INK}'>{e(str(r['ticker']))}</b><div class='mut' style='font-size:11px;color:{MUTED}'>"
+                     f"{pd.Timestamp(r['date']):%d.%m.} · Score {r['score']:.0f}</div></td>"
+                     f"<td class='line ink' style='padding:9px 6px;border-bottom:1px solid {LINE};text-align:right;color:{INK}'>{r['ret'] * 100:+.1f} %</td>"
+                     f"<td class='line' style='padding:9px 0;border-bottom:1px solid {LINE};text-align:right;font-weight:800;color:{col}'>"
+                     f"{r['excess'] * 100:+.1f} %</td></tr>")
+    th = f"style='font-size:11px;color:{MUTED};text-align:right;padding-bottom:6px'"
+    rows.append(f"<tr><td style='padding:0 24px 24px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'>"
+                f"<tr><th style='font-size:11px;color:{MUTED};text-align:left;padding-bottom:6px'>Signal</th><th {th}>Rendite</th>"
+                f"<th {th}>vs. Markt</th></tr>{''.join(lines)}</table>"
+                f"<div class='mut' style='font-size:11px;color:{MUTED};margin-top:12px'>Kurs am Tag der ersten Meldung bis heute. "
+                f"Keine Anlageberatung.</div></td></tr>")
+    return f"{BRAND} · Wochenrückblick: {wins:.0%} schlagen den Markt", _shell(rows)
+
+
+def failure(run_url: str) -> str:
+    rows = [_header("Der letzte Lauf ist fehlgeschlagen",
+                    "Heute kam deshalb möglicherweise keine oder eine unvollständige Mail."),
+            f"<tr><td style='padding:20px 24px 26px;font-size:14px;line-height:1.6' class='ink'>"
+            f"Häufigste Ursachen: Eine Behörde hat ihr Format geändert (dann schlägt ein Test fehl), "
+            f"eine Quelle war kurz nicht erreichbar oder die Gmail-Zugangsdaten stimmen nicht mehr.<br><br>"
+            f"<a href='{e(run_url)}' style='color:{NAVY2};font-weight:700'>Log des Laufs ansehen →</a><br><br>"
+            f"<span class='mut' style='color:{MUTED};font-size:12px'>Der nächste Lauf versucht es automatisch erneut.</span>"
+            f"</td></tr>"]
+    return _shell(rows)

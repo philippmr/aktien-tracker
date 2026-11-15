@@ -9,6 +9,7 @@ Aufruf:
 """
 import argparse
 import datetime as dt
+import os
 import time
 
 import pandas as pd
@@ -28,6 +29,10 @@ def main():
     ap.add_argument("--days", type=int, default=config.CONGRESS_LOOKBACK_DAYS)
     ap.add_argument("--email", action="store_true",
                     help="Mail mit neuen Trades seit dem letzten Lauf verschicken (Gmail-Daten aus Umgebungsvariablen)")
+    ap.add_argument("--auto", action="store_true",
+                    help="Für den Zeitplan (alle 3 h): Sofort-Alarm, Tagesmail ab 6 Uhr, Wochenrückblick montags")
+    ap.add_argument("--backtest", action="store_true",
+                    help="Backtest rechnen und output/backtest.html schreiben (dauert einige Minuten)")
     ap.add_argument("--email-test", action="store_true",
                     help="Beispiel-Mail mit allen Käufen der letzten 10 Tage senden (ändert den Status nicht)")
     ap.add_argument("--email-preview", action="store_true",
@@ -70,6 +75,16 @@ def main():
     good = track[track["n"] >= config.TRACK_RECORD_MIN_TRADES]
     print(f"  {len(good)} Politiker mit ≥{config.TRACK_RECORD_MIN_TRADES} bewerteten Käufen")
 
+    if args.backtest:
+        from tracker import backtest
+        print("Backtest")
+        bt_tickers = sorted(set(hist.loc[(hist["type"] == "Kauf") & hist["ticker"].notna(), "ticker"]))
+        ev = backtest.build_events(hist, prices, fundamentals.load(bt_tickers), committees)
+        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+        with open(os.path.join(config.OUTPUT_DIR, "backtest.html"), "w", encoding="utf-8") as f:
+            f.write(backtest.report_html(ev))
+        print(f"  {len(ev)} Ereignisse ausgewertet -> output/backtest.html")
+
     print(f"4/5 Fundamentaldaten ({len(cur_tickers)} Aktien) & Scoring")
     fund = fundamentals.load(cur_tickers)
     sig = scoring.PoliticianSignals(hist, track, committees)
@@ -85,7 +100,10 @@ def main():
         "Zeitraum": f"letzte {args.days} Tage",
     }
     path = report.write(ranking, current, leaderboard, stats)
-    if args.email_test:
+    if args.auto:
+        print("Automatik (Sofort-Alarm / Tagesmail / Wochenrückblick)")
+        alerts.auto(current, ranking, path, prices)
+    elif args.email_test:
         print("Test-Mail")
         alerts.run(current, ranking, path, test=True)
     elif args.email or args.email_preview:

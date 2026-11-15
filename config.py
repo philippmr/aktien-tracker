@@ -17,7 +17,7 @@ TRACK_RECORD_HORIZON_DAYS = 90   # Rendite eines Kaufs wird über so viele Tage 
 TRACK_RECORD_MIN_TRADES = 5      # erst ab so vielen bewerteten Käufen zählt die Trefferquote
 
 # Filter
-MIN_MARKET_CAP = 300_000_000     # Penny-Stocks / Micro-Caps raus
+MIN_MARKET_CAP = 2_000_000_000   # Small Caps raus: liefen im Backtest deutlich schlechter (−5 bis −9 % ggü. Markt)
 
 # Gewichtung im Gesamt-Score (Summe = 1)
 WEIGHT_INSIDER = 0.6

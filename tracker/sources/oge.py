@@ -26,7 +26,7 @@ from tracker import http
 
 API = "https://extapps2.oge.gov/201/Presiden.nsf/API.xsp/v3/rest"
 SEC_TICKERS = "https://www.sec.gov/files/company_tickers.json"
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 # Gesetzlich festgelegte Betragsspannen -> (untere, obere) Grenze
 TIERS = [(1_001, 15_000), (15_001, 50_000), (50_001, 100_000), (100_001, 250_000),
@@ -153,7 +153,7 @@ def _amount(s: str):
     s = s.strip()
     if re.search(r"over\s*\$?\s*50", s, re.I):
         return 50_000_001, None
-    s = re.sub(r"^[Ss$]+", "", _ocr_digits(s))          # führendes $ (OCR: S/s)
+    s = re.sub(r"^[Ss$]", "", _ocr_digits(s))          # EIN führendes $ (OCR liest es als S/s)
     first = re.split(r"[-•~]", s, maxsplit=1)[0]
     digits = re.sub(r"\D", "", first.replace("S", "5").replace("s", "5"))
     if not digits:

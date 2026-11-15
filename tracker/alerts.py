@@ -19,7 +19,29 @@ from email.message import EmailMessage
 import pandas as pd
 
 STATE_FILE = os.path.join("state", "seen.json")
+META_FILE = os.path.join("state", "meta.json")        # letzte Tages-/Wochenmail, Sofort-Alarme
+SIGNAL_LOG = os.path.join("state", "signals.csv")     # Signale je Tag -> Wochenrückblick
 STRONG_SCORE = 50
+INSTANT_SCORE = 70   # ab diesem Score kommt sofort eine Extra-Mail
+DIGEST_HOUR = 6      # Tagesmail beim ersten Lauf ab dieser Uhrzeit (deutsche Zeit)
+
+
+def watchlist() -> list[str]:
+    """Deine Aktien aus dem GitHub-Secret WATCHLIST, z. B. "AAPL,MSFT,NVDA" (bleibt privat)."""
+    return [t.strip().upper() for t in os.environ.get("WATCHLIST", "").split(",") if t.strip()]
+
+
+def load_meta() -> dict:
+    if os.path.exists(META_FILE):
+        with open(META_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_meta(meta: dict) -> None:
+    os.makedirs(os.path.dirname(META_FILE), exist_ok=True)
+    with open(META_FILE, "w") as f:
+        json.dump(meta, f, indent=1)
 NEW_WINDOW_DAYS = 7  # nur Trades, die höchstens so viele Tage vor dem Lauf gemeldet wurden
 
 
@@ -64,8 +86,10 @@ def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | 
 
     buys = new[(new["type"] == "Kauf") & new["ticker"].notna() & new["asset_type"].isin(["ST", "OP"])].copy()
     sells = new[new["type"] != "Kauf"]
-    if buys.empty:
-        return None  # nur Verkäufe -> keine Mail
+    wl = set(watchlist())
+    watch_sells = sells[sells["ticker"].isin(wl)]
+    if buys.empty and watch_sells.empty:
+        return None  # nur Verkäufe (ohne Bezug zu deiner Watchlist) -> keine Mail
 
     rk = ranking.set_index("ticker") if len(ranking) else pd.DataFrame()
 
@@ -74,13 +98,14 @@ def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | 
 
     def strong(t):
         i = info(t)
-        return bool(i) and (i.get("score", 0) >= STRONG_SCORE or bool(i.get("has_committee")) or
-                            bool(i.get("call_options")) or i.get("n_buyers", 0) >= 2)
+        return bool(i) and (i.get("score", 0) >= STRONG_SCORE or bool(i.get("call_options"))
+                            or i.get("n_buyers", 0) >= 2)
 
     buys["_score"] = buys["ticker"].map(lambda t: info(t).get("score", -1))
     buys = buys.sort_values(["_score", "ticker", "tx_date"], ascending=[False, True, False])
     strong_t = [t for t in dict.fromkeys(buys["ticker"]) if strong(t)]
-    return newsletter.build(buys, sells, info, strong_t, dashboard_url)
+    return newsletter.build(buys, sells, info, strong_t, dashboard_url, watch_sells=watch_sells,
+                            watch_buys=buys[buys["ticker"].isin(wl)])
 
 
 def send(subject: str, body_html: str, attachment: str | None = None) -> None:
@@ -134,3 +159,103 @@ def run(current: pd.DataFrame, ranking: pd.DataFrame, dashboard_path: str, *, dr
         log(f"  Mail verschickt: {digest[0]}")
     if not dry_run:
         save_seen(keys)
+
+
+# --------------------------------------------------------------------------- Sofort-Alarm
+def instant(current: pd.DataFrame, ranking: pd.DataFrame, meta: dict, log=print) -> None:
+    """Extra-Mail, sobald ein neu gemeldeter Kauf einen Score >= INSTANT_SCORE hat."""
+    from tracker import newsletter
+    if ranking.empty:
+        return
+    hot = set(ranking.loc[ranking["score"] >= INSTANT_SCORE, "ticker"])
+    recent = current[(current["filed"] >= dt.date.today() - dt.timedelta(days=NEW_WINDOW_DAYS))
+                     & (current["type"] == "Kauf") & current["ticker"].isin(hot)]
+    keys = recent.apply(lambda r: trade_key(r.to_dict()), axis=1) if len(recent) else pd.Series(dtype=str)
+    done = set(meta.get("alerted", []))
+    first_run = "alerted" not in meta
+    new = recent[~keys.isin(done)] if len(recent) else recent
+    meta["alerted"] = sorted(done | set(keys))[-5000:]
+    if first_run or new.empty:
+        return  # beim allerersten Lauf nur merken, nicht alarmieren
+    subject, body = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"))
+    top = ", ".join(dict.fromkeys(new["ticker"]))
+    send(f"⚡ Sofort-Alarm: {top} (Score ≥ {INSTANT_SCORE})", body)
+    log(f"  Sofort-Alarm verschickt: {top}")
+
+
+# --------------------------------------------------------------------------- Wochenrückblick
+def log_signals(ranking: pd.DataFrame) -> None:
+    """Merkt sich täglich die starken Signale mit Kurs, um sie später auszuwerten."""
+    if ranking.empty:
+        return
+    today = dt.date.today().isoformat()
+    top = ranking[ranking["score"] >= STRONG_SCORE][["ticker", "name", "score", "price"]].copy()
+    top.insert(0, "date", today)
+    old = pd.read_csv(SIGNAL_LOG) if os.path.exists(SIGNAL_LOG) else pd.DataFrame(columns=top.columns)
+    if today in set(old["date"].astype(str)):
+        return
+    # pro Ticker nur die ERSTE Signalmeldung behalten (ab dann zählt die Performance)
+    combined = pd.concat([old, top[~top["ticker"].isin(set(old["ticker"]))]], ignore_index=True)
+    os.makedirs(os.path.dirname(SIGNAL_LOG), exist_ok=True)
+    combined.to_csv(SIGNAL_LOG, index=False)
+
+
+def weekly_review(prices_now: dict, spy_hist: pd.Series) -> tuple[str, str] | None:
+    """Wie haben sich die starken Signale seit ihrer Meldung entwickelt (vs. S&P 500)?"""
+    from tracker import newsletter
+    if not os.path.exists(SIGNAL_LOG):
+        return None
+    log_ = pd.read_csv(SIGNAL_LOG, parse_dates=["date"])
+    log_ = log_[log_["date"] >= pd.Timestamp.today() - pd.Timedelta(days=180)]
+    rows = []
+    for _, r in log_.iterrows():
+        now = prices_now.get(r["ticker"])
+        if not now or not r["price"] or pd.isna(r["price"]):
+            continue
+        spy0 = spy_hist[spy_hist.index >= r["date"]]
+        spy_ret = (spy_hist.iloc[-1] / spy0.iloc[0] - 1) if len(spy0) else 0
+        ret = now / r["price"] - 1
+        rows.append({**r.to_dict(), "ret": ret, "excess": ret - spy_ret,
+                     "days": (pd.Timestamp.today() - r["date"]).days})
+    if not rows:
+        return None
+    return newsletter.weekly(pd.DataFrame(rows))
+
+
+# --------------------------------------------------------------------------- Fehler-Mail
+def send_failure(run_url: str) -> None:
+    from tracker import newsletter
+    send("❗ Capitol Radar: Lauf fehlgeschlagen", newsletter.failure(run_url))
+
+
+# --------------------------------------------------------------------------- Automatik
+def auto(current, ranking, dashboard_path, prices, log=print) -> None:
+    """Wird bei jedem (3-stündlichen) Lauf aufgerufen und entscheidet, was verschickt wird."""
+    if not (os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD")):
+        raise SystemExit("GMAIL_USER / GMAIL_APP_PASSWORD fehlen - in den GitHub-Secrets eintragen.")
+    from zoneinfo import ZoneInfo
+    now = dt.datetime.now(ZoneInfo("Europe/Berlin"))
+    today = now.date().isoformat()
+    meta = load_meta()
+
+    instant(current, ranking, meta, log)
+    log_signals(ranking)
+
+    if now.hour >= DIGEST_HOUR and meta.get("last_digest") != today:
+        run(current, ranking, dashboard_path, log=log)   # Tagesmail
+        meta["last_digest"] = today
+
+    if now.weekday() == 0 and now.hour >= DIGEST_HOUR and meta.get("last_weekly") != today:
+        last = {t: prices[t].dropna().iloc[-1] for t in prices.columns if prices[t].notna().any()}
+        review = weekly_review(last, prices["SPY"].dropna())
+        if review:
+            send(*review)
+            log("  Wochenrückblick verschickt")
+        meta["last_weekly"] = today
+    save_meta(meta)
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) >= 3 and sys.argv[1] == "--failure":
+        send_failure(sys.argv[2])

@@ -1,9 +1,9 @@
-name: Täglicher Politiker-Trade-Report
+name: Capitol Radar
 
 on:
   schedule:
-    - cron: "23 5 * * *"   # täglich 05:23 UTC = 06:23 (Winter) / 07:23 (Sommer) deutscher Zeit
-  workflow_dispatch:         # zusätzlich manuell startbar (Actions -> Run workflow)
+    - cron: "17 */3 * * *"   # alle 3 Stunden: Sofort-Alarme; Tagesmail beim ersten Lauf ab 6 Uhr (deutsche Zeit)
+  workflow_dispatch:         # manuell startbar (Actions -> Run workflow)
     inputs:
       test_mail:
         description: "Beispiel-Mail mit den Käufen der letzten 10 Tage senden (ändert nichts am Status)"
@@ -11,16 +11,21 @@ on:
         default: false
 
 permissions:
-  contents: write            # damit state/seen.json zurück ins Repo geschrieben werden kann
+  contents: write            # state/ zurück ins Repo schreiben
+  pages: write               # Dashboard auf GitHub Pages veröffentlichen
+  id-token: write
 
 concurrency:
-  group: daily-report
+  group: capitol-radar
   cancel-in-progress: false
+
+env:
+  DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
 
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 120     # erster Lauf lädt die Historie seit 2023 (~30-40 min)
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -30,9 +35,10 @@ jobs:
           cache: pip
 
       - name: Abhängigkeiten installieren
-        run: pip install -r requirements.txt
+        run: |
+          sudo apt-get install -y -qq tesseract-ocr > /dev/null
+          pip install -r requirements.txt pytest
 
-      # PDFs, geparste Meldungen und Kurse zwischen den Läufen aufheben
       - name: Daten-Cache wiederherstellen
         uses: actions/cache@v4
         with:
@@ -40,26 +46,52 @@ jobs:
           key: tracker-cache-${{ github.run_id }}
           restore-keys: tracker-cache-
 
-      - name: Tracker laufen lassen und Mail verschicken
+      - name: Tests (Parser, Scoring, Mail)
+        run: python -m pytest -q
+
+      - name: Backtest einmal pro Woche (Sonntag früh)
+        run: |
+          if [ "$(TZ=Europe/Berlin date +%u)" = "7" ] && [ "$(TZ=Europe/Berlin date +%H)" -ge 4 ] && [ "$(TZ=Europe/Berlin date +%H)" -lt 7 ]; then
+            echo "BACKTEST=--backtest" >> "$GITHUB_ENV"
+          fi
+
+      - name: Tracker laufen lassen und Mails verschicken
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          WATCHLIST: ${{ secrets.WATCHLIST }}
         run: |
           if [ "${{ inputs.test_mail }}" = "true" ]; then
             python run.py --email-test
           else
-            python run.py --email
+            python run.py --auto $BACKTEST
           fi
 
-      - name: Gemeldete Trades merken (state/seen.json committen)
+      - name: Status merken (state/ committen)
         if: ${{ inputs.test_mail != true }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/seen.json
-          git diff --cached --quiet || git commit -m "Status: gemeldete Trades $(date -u +%F)"
-          git push
+          git add state/
+          git diff --cached --quiet || git commit -m "Status $(date -u +'%F %H:%M')"
+          git pull --rebase -q && git push
+
+      - name: Dashboard für GitHub Pages vorbereiten
+        run: |
+          mkdir -p site
+          cp output/dashboard.html site/index.html
+          # Backtest-Seite: neu gerechnete nehmen und im Cache aufheben, sonst die letzte
+          if [ -f output/backtest.html ]; then cp output/backtest.html cache/backtest.html; fi
+          if [ -f cache/backtest.html ]; then cp cache/backtest.html site/backtest.html; fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Dashboard veröffentlichen
+        uses: actions/deploy-pages@v4
+        continue-on-error: true   # klappt erst, wenn Pages im Repo aktiviert ist
 
       - name: Dashboard als Download speichern
         if: always()
@@ -68,3 +100,11 @@ jobs:
           name: dashboard-${{ github.run_number }}
           path: output/
           retention-days: 14
+
+      - name: Fehler-Mail
+        if: failure()
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python -m tracker.alerts --failure "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
