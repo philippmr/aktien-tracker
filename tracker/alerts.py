@@ -20,6 +20,7 @@ import pandas as pd
 
 STATE_FILE = os.path.join("state", "seen.json")
 STRONG_SCORE = 50
+NEW_WINDOW_DAYS = 7  # nur Trades, die höchstens so viele Tage vor dem Lauf gemeldet wurden
 
 
 def trade_key(r) -> str:
@@ -49,7 +50,10 @@ def new_trades(current: pd.DataFrame) -> tuple[pd.DataFrame, set[str]]:
     if seen is None:
         recent = current["filed"] >= dt.date.today() - dt.timedelta(days=3)
         return current[recent], set(keys)
-    mask = ~keys.isin(seen)
+    # Nur kürzlich gemeldete Trades: verhindert eine Riesen-Mail, wenn eine neue Quelle
+    # dazukommt oder ein Lauf länger ausgefallen ist.
+    recent = current["filed"] >= dt.date.today() - dt.timedelta(days=NEW_WINDOW_DAYS)
+    mask = ~keys.isin(seen) & recent
     return current[mask], seen | set(keys)
 
 
@@ -70,8 +74,8 @@ def _range(r):
 def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | None) -> tuple[str, str] | None:
     buys = new[(new["type"] == "Kauf") & new["ticker"].notna() & new["asset_type"].isin(["ST", "OP"])]
     sells = new[new["type"] != "Kauf"]
-    if buys.empty and sells.empty:
-        return None
+    if buys.empty:
+        return None  # nur Verkäufe -> keine Mail
 
     rk = ranking.set_index("ticker") if len(ranking) else pd.DataFrame()
     def info(t):
