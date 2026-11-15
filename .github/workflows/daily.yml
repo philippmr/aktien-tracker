@@ -12,15 +12,10 @@ on:
 
 permissions:
   contents: write            # state/ zurück ins Repo schreiben
-  pages: write               # Dashboard auf GitHub Pages veröffentlichen
-  id-token: write
 
 concurrency:
   group: capitol-radar
   cancel-in-progress: false
-
-env:
-  DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
 
 jobs:
   report:
@@ -77,21 +72,10 @@ jobs:
           git diff --cached --quiet || git commit -m "Status $(date -u +'%F %H:%M')"
           git pull --rebase -q && git push
 
-      - name: Dashboard für GitHub Pages vorbereiten
+      - name: Backtest-Seite der letzten Woche aufheben
         run: |
-          mkdir -p site
-          cp output/dashboard.html site/index.html
-          # Backtest-Seite: neu gerechnete nehmen und im Cache aufheben, sonst die letzte
           if [ -f output/backtest.html ]; then cp output/backtest.html cache/backtest.html; fi
-          if [ -f cache/backtest.html ]; then cp cache/backtest.html site/backtest.html; fi
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - name: Dashboard veröffentlichen
-        uses: actions/deploy-pages@v4
-        continue-on-error: true   # klappt erst, wenn Pages im Repo aktiviert ist
+          if [ ! -f output/backtest.html ] && [ -f cache/backtest.html ]; then cp cache/backtest.html output/; fi
 
       - name: Dashboard als Download speichern
         if: always()

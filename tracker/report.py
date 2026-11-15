@@ -109,7 +109,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 <div class="wrap">
 <button class="themebtn" onclick="toggleTheme()">◐ Theme</button>
 <h1>Politiker-Insider-Tracker</h1>
-<div class="sub">Aktienkäufe von US-Kongress und Regierung · Ausschuss-/Ressort-Bezug · Trefferquote · Fundamentaldaten · Stand <span id="gen"></span> · <a href="backtest.html">Backtest: Wie gut ist der Score?</a></div>
+<div class="sub">Aktienkäufe von US-Kongress und Regierung · Ausschuss-/Ressort-Bezug · Trefferquote · Fundamentaldaten · Stand <span id="gen"></span></div>
 <div class="stats" id="stats"></div>
 <div class="tabs"><button class="tab on" data-t="rank">Aktien-Ranking</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button></div>
 
