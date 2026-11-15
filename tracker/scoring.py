@@ -84,7 +84,14 @@ class PoliticianSignals:
 
         # Ausschuss-Bezug
         info = None
-        if self.committees is not None:
+        if row["source"] == "Exekutive":
+            from tracker.committees import agency_relevant
+            rel = agency_relevant(row.get("role"), sector, industry)
+            if rel:
+                pts += 20
+                why.append(f"{row['person']} ist zuständig: {rel}")
+                flags["committee"] = [rel]
+        elif self.committees is not None:
             chamber = "sen" if row["source"] == "Senat" else "rep"
             info = self.committees.match(row["person"], row.get("state_district"), chamber)
         if info:

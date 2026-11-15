@@ -60,6 +60,45 @@ COMMITTEE_SECTORS: dict[str, tuple[list[str], list[str]]] = {
 }
 
 
+# Behörde / Amt (Exekutive) -> (Yahoo-Sektoren, Branchen-Schlagworte). Schlüssel = Teilstring
+# der OGE-Angaben "agency"/"title" (Kleinschreibung).
+AGENCY_SECTORS: dict[str, tuple[list[str], list[str]]] = {
+    # Präsident / Vizepräsident bewusst NICHT pauschal: Ihre Depots werden von Verwaltern geführt
+    # (Hunderte Trades pro Bericht); ein Pauschal-Bonus würde das Ranking verzerren.
+    "energy": (["Energy", "Utilities"], ["uranium", "coal", "solar"]),
+    "interior": (["Energy"], ["gold", "copper", "metals", "mining", "uranium", "coal", "lumber"]),
+    "treasury": (["Financial Services"], []),
+    "federal reserve": (["Financial Services", "Real Estate"], []),
+    "commerce": (["Technology", "Industrials", "Communication Services"], ["semiconductor", "steel", "aluminum"]),
+    "defense": ([], ["aerospace", "defense", "information technology services", "shipbuild"]),
+    "army": ([], ["aerospace", "defense"]), "navy": ([], ["aerospace", "defense", "shipbuild"]),
+    "air force": ([], ["aerospace", "defense"]),
+    "transportation": ([], ["airline", "railroad", "trucking", "freight", "auto", "engineering & construction"]),
+    "federal aviation": ([], ["airline", "aerospace"]),
+    "federal highway": ([], ["engineering & construction", "building materials", "infrastructure"]),
+    "health and human": (["Healthcare"], []), "food and drug": (["Healthcare"], []),
+    "medicare": (["Healthcare"], []), "national institutes of health": (["Healthcare"], []),
+    "agriculture": ([], ["farm", "agricultur", "food", "fertiliz"]),
+    "environmental protection": (["Utilities", "Energy"], ["waste", "pollution", "chemical"]),
+    "federal communications": (["Communication Services"], []),
+    "securities and exchange": (["Financial Services"], []),
+    "housing and urban": (["Real Estate"], ["homebuild", "building"]),
+    "science and technology": (["Technology"], []),
+    "nasa": ([], ["aerospace"]), "national aeronautics": ([], ["aerospace"]),
+    "veterans": (["Healthcare"], []), "education": ([], ["education"]),
+}
+
+
+def agency_relevant(role: str, sector: str | None, industry: str | None) -> str | None:
+    """Gibt das zuständige Amt zurück, wenn die Aktie in dessen Zuständigkeit fällt."""
+    txt = lambda v: v if isinstance(v, str) else ""  # fehlende Werte kommen als NaN (float)
+    r, sector, industry = txt(role).lower(), txt(sector), txt(industry).lower()
+    for key, (sectors, kws) in AGENCY_SECTORS.items():
+        if key in r and (sector in sectors or any(k in industry for k in kws)):
+            return role
+    return None
+
+
 def _norm(s: str) -> str:
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z ]", "", s.lower()).strip()
@@ -124,7 +163,8 @@ class Committees:
     def relevant_committees(self, bioguide: str, sector: str | None, industry: str | None) -> list[str]:
         """Ausschüsse dieses Politikers, die für Sektor/Branche der Aktie zuständig sind."""
         out = []
-        sector, industry = (sector or ""), (industry or "").lower()
+        txt = lambda v: v if isinstance(v, str) else ""
+        sector, industry = txt(sector), txt(industry).lower()
         for cid, title in self.member_of.get(bioguide, []):
             if len(cid) != 4 or cid not in COMMITTEE_SECTORS:
                 continue  # nur Hauptausschüsse

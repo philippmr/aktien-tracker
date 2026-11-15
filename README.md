@@ -1,6 +1,6 @@
 # Politiker-Insider-Tracker
 
-Screent die Aktienkäufe von US-Kongressmitgliedern und bewertet jede gekaufte Aktie nach
+Screent die Aktienkäufe von US-Kongressmitgliedern und Regierungsmitgliedern und bewertet jede gekaufte Aktie nach
 **Ausschuss-Bezug**, **Trefferquote des Politikers**, **ungewöhnlichen Trades** und **Fundamentaldaten**.
 Ergebnis ist ein interaktives HTML-Dashboard plus CSV-Dateien.
 
@@ -10,6 +10,7 @@ Ergebnis ist ein interaktives HTML-Dashboard plus CSV-Dateien.
 |---|---|
 | House Clerk (disclosures-clerk.house.gov) | Periodic Transaction Reports der Abgeordneten (PDF), Historie ab 2023 |
 | Senate eFD (efdsearch.senate.gov) | Periodic Transaction Reports der Senator/innen |
+| Office of Government Ethics (extapps2.oge.gov) | Transaktionsberichte (Formular 278-T) der Exekutive: Präsident, Minister, Fed-Gouverneure, Behördenchefs |
 | unitedstates/congress-legislators (GitHub) | Wer sitzt in welchem Ausschuss, Partei, Wahlkreis |
 | Yahoo Finance (yfinance) | Kurse (für Trefferquote) und Fundamentaldaten |
 
@@ -103,6 +104,17 @@ Qualität (ROE, Margen, Free Cashflow), Wachstum (Umsatz, Gewinn), Bilanz (Versc
 Die Senatsdatenbank verlangt die Zustimmung zu ihren Nutzungsbedingungen (u. a. keine kommerzielle Nutzung).
 `SENATE_ACCEPT_TERMS = True` in `config.py` bedeutet, dass du zugestimmt hast.
 Hinweis: Von Cloud-Servern aus blockt die Seite die Datenabfrage (HTTP 503). Von einem normalen Internetanschluss aus sollte sie funktionieren.
+
+## Exekutive (OGE)
+
+- Geladen werden nur Berichte, die das OGE direkt als PDF verlinkt (rund 8 pro Monat, u. a. Präsident, Minister, Fed).
+  Viele andere Amtsträger müssen einzeln per Formular angefordert werden und fehlen deshalb.
+- Die Berichte des Präsidenten sind eingescannt. Ihr Text wird per OCR gelesen, Firmennamen werden über die
+  SEC-Tickerliste zugeordnet. Einzelne Daten oder Beträge können deshalb falsch erkannt werden; im Zweifel gilt das PDF.
+- Für Amtsträger gibt es analog zum Ausschuss einen **Ressort-Bezug** (z. B. Energieminister kauft Energieaktien),
+  Zuordnung in `AGENCY_SECTORS` in `tracker/committees.py`.
+- Präsident und Vizepräsident bekommen keinen pauschalen Ressort-Bonus. Ihre Depots werden von Verwaltern geführt
+  und gelten als Sammelmeldungen (schwaches Signal).
 
 ## Grenzen
 

@@ -109,7 +109,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 <div class="wrap">
 <button class="themebtn" onclick="toggleTheme()">◐ Theme</button>
 <h1>Politiker-Insider-Tracker</h1>
-<div class="sub">Aktienkäufe von US-Kongressmitgliedern · Ausschuss-Bezug · Trefferquote · Fundamentaldaten · Stand <span id="gen"></span></div>
+<div class="sub">Aktienkäufe von US-Kongress und Regierung · Ausschuss-/Ressort-Bezug · Trefferquote · Fundamentaldaten · Stand <span id="gen"></span></div>
 <div class="stats" id="stats"></div>
 <div class="tabs"><button class="tab on" data-t="rank">Aktien-Ranking</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button></div>
 
@@ -118,7 +118,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
   <input id="q" placeholder="Ticker, Name oder Politiker">
   <select id="sector"><option value="">Alle Sektoren</option></select>
   <select id="minscore"><option value="0">Score ≥ 0</option><option value="50">≥ 50</option><option value="60">≥ 60</option><option value="70">≥ 70</option></select>
-  <label><input type="checkbox" id="fcom"> nur Ausschuss-Bezug</label>
+  <label><input type="checkbox" id="fcom"> nur Ausschuss-/Ressort-Bezug</label>
   <label><input type="checkbox" id="fclu"> ≥ 2 Politiker</label>
   <label><input type="checkbox" id="fcall"> Call-Optionen</label>
   <label><input type="checkbox" id="fman"> Verwalter-Depots ausblenden</label>
@@ -135,7 +135,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 <div id="feed" hidden>
  <div class="filters">
   <input id="fq" placeholder="Ticker / Politiker suchen">
-  <select id="fsrc"><option value="">House & Senat</option><option>House</option><option>Senat</option></select>
+  <select id="fsrc"><option value="">Alle Quellen</option><option>House</option><option>Senat</option><option>Exekutive</option></select>
   <select id="ftype"><option value="">Käufe & Verkäufe</option><option>Kauf</option><option value="sell">Verkäufe</option></select>
  </div>
  <div class="card"><table id="ft"><thead></thead><tbody></tbody></table></div>
@@ -167,7 +167,7 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelect
  ["rank","pol","feed"].forEach(id=>$("#"+id).hidden=b.dataset.t!==id);});
 
 // ------------------------------------------------------------- Aktien-Ranking
-const tags = r => (r.has_committee?'<span class="tag c">Ausschuss</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
+const tags = r => (r.has_committee?'<span class="tag c">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
   (r.unusual_size?'<span class="tag">groß</span>':'')+(r.n_buyers>=2?'<span class="tag">Cluster</span>':'')+(r.managed_only?'<span class="tag">Verwalter</span>':'');
 const RC = [
  ["#","_rank",r=>r._rank,1],["Ticker","ticker",r=>`<span class="tk">${esc(r.ticker)}</span>`],
@@ -204,7 +204,7 @@ function detail(r){
   <b>Warum?</b><ul class="why">${(r.reasons||[]).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>–</li>"}</ul>
   <b>Fundamental</b>${pills}<div style="margin-top:8px">${facts}</div>
   <div style="margin-top:8px"><a href="https://finance.yahoo.com/quote/${encodeURIComponent(r.ticker)}" target="_blank" rel="noopener">Yahoo Finance</a></div></div>
-  <div><b>Transaktionen</b><table class="mini"><thead><tr><th>Trade</th><th>Gemeldet</th><th>Politiker</th><th>Kammer</th><th>Eigentümer</th><th>Art</th><th class="num">Betrag</th><th>Beschreibung</th><th></th></tr></thead>
+  <div><b>Transaktionen</b><table class="mini"><thead><tr><th>Trade</th><th>Gemeldet</th><th>Politiker</th><th>Amt</th><th>Eigentümer</th><th>Art</th><th class="num">Betrag</th><th>Beschreibung</th><th></th></tr></thead>
   <tbody>${tradeRows(tr)}</tbody></table></div></div></td></tr>`;
 }
 
@@ -233,7 +233,7 @@ function renderPol(){const q=$("#pq").value.toLowerCase();
 $("#pq").oninput=renderPol; renderPol();
 
 // ------------------------------------------------------------- Feed
-$("#ft thead").innerHTML="<tr><th>Trade</th><th>Gemeldet</th><th>Kammer</th><th>Ticker</th><th>Asset</th><th>Politiker</th><th>Eigentümer</th><th>Art</th><th class='num'>Betrag</th><th>Beschreibung</th><th></th></tr>";
+$("#ft thead").innerHTML="<tr><th>Trade</th><th>Gemeldet</th><th>Amt</th><th>Ticker</th><th>Asset</th><th>Politiker</th><th>Eigentümer</th><th>Art</th><th class='num'>Betrag</th><th>Beschreibung</th><th></th></tr>";
 function renderFeed(){
  const q=$("#fq").value.toLowerCase(), s=$("#fsrc").value, t=$("#ftype").value;
  const rows=D.feed.filter(r=>(!q||((r.ticker||"")+" "+r.person).toLowerCase().includes(q))&&(!s||r.source===s)&&

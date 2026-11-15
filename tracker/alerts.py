@@ -95,8 +95,14 @@ def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | 
     def stock_block(t):
         i = info(t)
         rows = buys[buys["ticker"] == t]
+        def who(r):
+            if r.get("source") == "Exekutive":  # Amt dazuschreiben, z. B. "President"
+                return (f"{e(str(r['person']))}<br><span style='color:#667085;font-size:11px'>"
+                        f"{e(str(r.get('role') or ''))}</span>")
+            return e(str(r["person"]))
+
         trades = "".join(
-            f"<tr><td style='{td}'>{e(str(r['person']))}</td><td style='{td}'>{r['tx_date']:%d.%m.%Y}</td>"
+            f"<tr><td style='{td}'>{who(r)}</td><td style='{td}'>{r['tx_date']:%d.%m.%Y}</td>"
             f"<td style='{td}'>{e(str(r.get('owner') or ''))}</td><td style='{td}'>{_range(r)}"
             f"{' (Option)' if r['asset_type'] == 'OP' else ''}</td>"
             f"<td style='{td}'><a href='{e(str(r['url']))}'>PDF</a></td></tr>" for _, r in rows.iterrows())

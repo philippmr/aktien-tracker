@@ -1,4 +1,4 @@
-"""Politiker-Insider-Tracker: Aktienkäufe von US-Kongressmitgliedern screenen,
+"""Politiker-Insider-Tracker: Aktienkäufe von US-Kongressmitgliedern und Regierungsmitgliedern screenen,
 mit Ausschuss-Bezug, Trefferquote und Fundamentaldaten bewerten.
 
 Aufruf:
@@ -16,7 +16,7 @@ import pandas as pd
 import config
 from tracker import alerts, fundamentals, performance, report, scoring
 from tracker.committees import Committees
-from tracker.sources import house, senate
+from tracker.sources import house, oge, senate
 
 COLUMNS = ["source", "person", "role", "state_district", "filed", "url", "filing_id", "filing_size",
            "ticker", "asset_type", "asset", "owner", "type", "tx_date", "amount_low", "amount_high",
@@ -41,6 +41,10 @@ def main():
         trades += senate.fetch(history_days)
     except Exception as e:  # Senats-Seite ist fragil, soll den Lauf nicht abbrechen
         print(f"  Senat: Fehler ({e}), übersprungen")
+    try:
+        trades += oge.fetch(history_days)
+    except Exception as e:
+        print(f"  OGE: Fehler ({e}), übersprungen")
     hist = pd.DataFrame(trades).reindex(columns=COLUMNS)
     hist = hist[hist["tx_date"].notna()]
     since = today - dt.timedelta(days=args.days)

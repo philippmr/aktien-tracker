@@ -47,9 +47,7 @@ def load_prices(tickers, start: dt.date, log=print) -> pd.DataFrame:
             cached = pd.concat([cached, new], axis=1) if len(cached) else new
             cached = cached.loc[:, ~cached.columns.duplicated()]
             # leere Spalten (unbekannte Ticker) behalten, damit sie nicht jedes Mal neu geladen werden
-            for t in missing:
-                if t not in cached.columns:
-                    cached[t] = float("nan")
+            cached = cached.reindex(columns=list(cached.columns) + [t for t in missing if t not in cached.columns])
             cached.to_pickle(path)
     return cached
 
