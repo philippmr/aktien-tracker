@@ -121,6 +121,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
   <label><input type="checkbox" id="fcom"> nur Ausschuss-/Ressort-Bezug</label>
   <label><input type="checkbox" id="fclu"> ≥ 2 Politiker</label>
   <label><input type="checkbox" id="fcall"> Call-Optionen</label>
+  <label><input type="checkbox" id="fcon"> Staatsauftrag nach Kauf</label>
   <label><input type="checkbox" id="fman"> Verwalter-Depots ausblenden</label>
  </div>
  <div class="card"><table id="rt"><thead></thead><tbody></tbody></table></div>
@@ -167,7 +168,7 @@ document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelect
  ["rank","pol","feed"].forEach(id=>$("#"+id).hidden=b.dataset.t!==id);});
 
 // ------------------------------------------------------------- Aktien-Ranking
-const tags = r => (r.has_committee?'<span class="tag c">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
+const tags = r => (r.contracts?'<span class="tag c">Staatsauftrag</span>':'')+(r.has_committee?'<span class="tag">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
   (r.unusual_size?'<span class="tag">groß</span>':'')+(r.n_buyers>=2?'<span class="tag">Cluster</span>':'')+(r.managed_only?'<span class="tag">Verwalter</span>':'');
 const RC = [
  ["#","_rank",r=>r._rank,1],["Ticker","ticker",r=>`<span class="tk">${esc(r.ticker)}</span>`],
@@ -199,7 +200,7 @@ function detail(r){
  const facts=[["Branche",esc(r.industry||"–")],["PEG",fmtNum(r.peg,2)],["ROE",fmtPct(r.roe)],["Umsatzwachstum",fmtPct(r.rev_growth)],
   ["Verschuldung (D/E)",r.debt_to_equity==null?"–":fmtNum(r.debt_to_equity,0)+" %"],["Analysten-Rating",fmtNum(r.analyst_rating,2)],
   ["Abstand 52W-Hoch",fmtPct(r.off_52w_high)],["Über 200-Tage-Linie",r.above_200d==null?"–":r.above_200d?"ja":"nein"],
-  ["Kurs",r.price==null?"–":r.price.toFixed(2)+" $"]].map(([k,v])=>`<span class="chip">${k}: ${v}</span>`).join("");
+  ["Kurs",r.price==null?"–":r.price.toFixed(2)+" $"],["Staatsaufträge seit Kauf",esc(r.contracts||"keine ≥ 10 Mio $")]].map(([k,v])=>`<span class="chip">${k}: ${v}</span>`).join("");
  return `<tr class="detail"><td colspan="${RC.length}"><div class="dgrid"><div>
   <b>Warum?</b><ul class="why">${(r.reasons||[]).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>–</li>"}</ul>
   <b>Fundamental</b>${pills}<div style="margin-top:8px">${facts}</div>
@@ -212,13 +213,13 @@ function renderRank(){
  const q=$("#q").value.toLowerCase(), sec=$("#sector").value, ms=+$("#minscore").value;
  const fc=$("#fcom").checked, fl=$("#fclu").checked, fo=$("#fcall").checked, fm=$("#fman").checked;
  let rows=D.ranking.filter(r=>(!q||(r.ticker+" "+r.name+" "+r.buyers).toLowerCase().includes(q))&&(!sec||r.sector===sec)&&r.score>=ms&&
-  (!fc||r.has_committee)&&(!fl||r.n_buyers>=2)&&(!fo||r.call_options)&&(!fm||!r.managed_only));
+  (!fc||r.has_committee)&&(!fl||r.n_buyers>=2)&&(!fo||r.call_options)&&(!$("#fcon").checked||r.contracts)&&(!fm||!r.managed_only));
  const k=rSort.k; rows.sort((a,b)=>{const x=a[k],y=b[k];if(x==null)return 1;if(y==null)return -1;return (x>y?1:x<y?-1:0)*rSort.dir;});
  $("#rt tbody").innerHTML=rows.map(r=>`<tr class="row" data-t="${esc(r.ticker)}">${RC.map(c=>`<td class="${c[3]?'num':''}">${c[2](r)}</td>`).join("")}</tr>`+(open.has(r.ticker)?detail(r):"")).join("")
   || `<tr><td colspan="${RC.length}">Keine Treffer</td></tr>`;
 }
 $("#rt tbody").onclick=e=>{if(e.target.closest("a"))return;const tr=e.target.closest("tr.row");if(!tr)return;const t=tr.dataset.t;open.has(t)?open.delete(t):open.add(t);renderRank();};
-["#q","#sector","#minscore","#fcom","#fclu","#fcall","#fman"].forEach(s=>$(s).oninput=renderRank);
+["#q","#sector","#minscore","#fcom","#fclu","#fcall","#fcon","#fman"].forEach(s=>$(s).oninput=renderRank);
 renderRank();
 
 // ------------------------------------------------------------- Politiker

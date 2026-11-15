@@ -89,6 +89,11 @@ def main():
     fund = fundamentals.load(cur_tickers)
     sig = scoring.PoliticianSignals(hist, track, committees)
     ranking = scoring.rank(current, fund, prices, sig)
+    try:
+        from tracker import contracts
+        ranking = contracts.annotate(ranking, current)
+    except Exception as e:  # Zusatzinfo, soll den Lauf nie abbrechen
+        print(f"  Staatsaufträge: übersprungen ({e})")
 
     print("5/5 Dashboard schreiben")
     leaderboard = good.sort_values("avg_excess", ascending=False).reset_index()

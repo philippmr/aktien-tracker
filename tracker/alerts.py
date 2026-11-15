@@ -85,7 +85,7 @@ def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | 
     from tracker import newsletter
 
     buys = new[(new["type"] == "Kauf") & new["ticker"].notna() & new["asset_type"].isin(["ST", "OP"])].copy()
-    sells = new[new["type"] != "Kauf"]
+    sells = new[new["type"].isin(["Verkauf", "Teilverkauf"])]   # Scans mit unklarer Art nicht mitzählen
     wl = set(watchlist())
     watch_sells = sells[sells["ticker"].isin(wl)]
     if buys.empty and watch_sells.empty:

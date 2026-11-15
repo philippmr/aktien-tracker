@@ -123,7 +123,59 @@ def _parse_pdf(raw: bytes) -> list[dict]:
 PARSER_VERSION = 3  # erhöhen, wenn sich _parse_pdf ändert -> Cache wird neu aufgebaut
 
 
-def _parsed(url: str) -> list[dict]:
+SCAN_VERSION = 2
+SCAN_MAX_AGE_DAYS = 400   # ältere Papiermeldungen nicht per OCR auslesen (spart Zeit)
+_SCAN_LINE = re.compile(r"^\W*(?:JT|SP|DC)?\W*(.+)$")
+_SCAN_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4})")
+
+
+def _parse_scan(raw: bytes, filed: dt.date) -> list[dict]:
+    """Eingescannte Papiermeldung per OCR (Tesseract) lesen.
+
+    Die Formulare haben Ankreuzfelder für Kauf/Verkauf und Betrag, die OCR nicht zuverlässig
+    erkennt. Deshalb werden nur die Aktien erfasst, mit Art "Unklar (Scan)". Sie erscheinen im
+    Dashboard, zählen aber nicht für Score oder Mail."""
+    try:
+        import pypdfium2 as pdfium
+        import pytesseract
+    except ImportError:
+        return []
+    from tracker.sources.oge import match_ticker
+    out, seen = [], set()
+    try:
+        pdf = pdfium.PdfDocument(raw)
+        for i in range(min(len(pdf), 6)):
+            text = pytesseract.image_to_string(pdf[i].render(scale=300 / 72).to_pil())
+            for line in text.splitlines():
+                m = _SCAN_LINE.match(line.strip())
+                cand = re.sub(r"[|\[\]]", " ", m.group(1) if m else "").strip()
+                if len(cand) < 4 or "example" in cand.lower() or "mega corp" in cand.lower():
+                    continue
+                if not re.search(r"\b(INC|CORP|CO|LTD|PLC|HLDGS|HOLDINGS|GROUP|CLASS|COMMON|ETF|TR)\b", cand.upper()):
+                    continue
+                cand = re.sub(r"\s+(\$|\d{1,2}/).*$", "", cand)     # Datums-/Betragsspalten abschneiden
+                cand = re.sub(r"\bING\b", "INC", cand)              # typischer OCR-Fehler
+                ticker = match_ticker(cand)
+                if not ticker or ticker in seen:
+                    continue
+                seen.add(ticker)
+                d = _SCAN_DATE.search(line)
+                tx = filed
+                if d:
+                    y = int(d.group(3)); y = y + 2000 if y < 100 else y
+                    try:
+                        tx = min(dt.date(y, int(d.group(1)), int(d.group(2))), filed)
+                    except ValueError:
+                        pass
+                out.append({"ticker": ticker, "asset_type": "ST", "asset": cand[:120], "owner": "",
+                            "type": "Unklar (Scan)", "tx_date": tx, "amount_low": None, "amount_high": None,
+                            "description": "Papiermeldung, per Texterkennung gelesen – Art und Betrag im PDF prüfen"})
+    except Exception:
+        return out
+    return out
+
+
+def _parsed(url: str, filed: dt.date | None = None) -> list[dict]:
     """PDF laden und parsen; Ergebnis als JSON cachen (PDFs ändern sich nicht)."""
     path = http.cache_path(url + f"#v{PARSER_VERSION}", "house_parsed", ".json")
     if os.path.exists(path):
@@ -135,10 +187,26 @@ def _parsed(url: str) -> list[dict]:
         if raw is not None:
             with open(path, "w") as f:
                 json.dump(rows, f, default=str)
+    if not rows and filed and (dt.date.today() - filed).days <= SCAN_MAX_AGE_DAYS:
+        scan_path = http.cache_path(url + f"#scan{SCAN_VERSION}", "house_parsed", ".json")
+        if os.path.exists(scan_path):
+            with open(scan_path) as f:
+                rows = json.load(f)
+        else:
+            raw = http.get(url, cache="house_pdf", suffix=".pdf")
+            rows = _parse_scan(raw, filed) if raw else []
+            if raw is not None and _ocr_available():
+                with open(scan_path, "w") as f:
+                    json.dump(rows, f, default=str)
     for r in rows:
         if isinstance(r["tx_date"], str):
             r["tx_date"] = dt.date.fromisoformat(r["tx_date"])
     return rows
+
+
+def _ocr_available() -> bool:
+    import shutil
+    return shutil.which("tesseract") is not None
 
 
 TITLES = {"mr", "mrs", "ms", "dr", "hon", "jr", "sr", "ii", "iii", "iv"}
@@ -162,13 +230,15 @@ def fetch(lookback_days: int, log=print) -> list[dict]:
     filings = [f for f in filings if f["filed"] >= since]
     log(f"  House: {len(filings)} PTR-Meldungen seit {since}")
 
-    trades, skipped = [], 0
+    trades, skipped, scanned = [], 0, 0
     for f in filings:
         url = f"{BASE}/ptr-pdfs/{f['year']}/{f['doc_id']}.pdf"
-        rows = _parsed(url)
+        rows = _parsed(url, f["filed"])
         if not rows:
             skipped += 1  # Scan / Papiermeldung oder Fehler
             continue
+        if rows[0].get("type") == "Unklar (Scan)":
+            scanned += 1
         for r in rows:
             trades.append({
                 "filing_id": f["doc_id"],
@@ -181,5 +251,6 @@ def fetch(lookback_days: int, log=print) -> list[dict]:
                 "url": url,
                 **r,
             })
-    log(f"  House: {len(trades)} Transaktionen geparst, {skipped} Meldungen nicht lesbar (Scans)")
+    log(f"  House: {len(trades)} Transaktionen geparst, davon {scanned} Papiermeldungen per OCR; "
+        f"{skipped} Meldungen nicht lesbar")
     return trades
