@@ -1,0 +1,59 @@
+name: Täglicher Politiker-Trade-Report
+
+on:
+  schedule:
+    - cron: "23 5 * * *"   # täglich 05:23 UTC = 06:23 (Winter) / 07:23 (Sommer) deutscher Zeit
+  workflow_dispatch: {}      # zusätzlich manuell startbar (Actions -> Run workflow)
+
+permissions:
+  contents: write            # damit state/seen.json zurück ins Repo geschrieben werden kann
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120     # erster Lauf lädt die Historie seit 2023 (~30-40 min)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      # PDFs, geparste Meldungen und Kurse zwischen den Läufen aufheben
+      - name: Daten-Cache wiederherstellen
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: tracker-cache-${{ github.run_id }}
+          restore-keys: tracker-cache-
+
+      - name: Tracker laufen lassen und Mail verschicken
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python run.py --email
+
+      - name: Gemeldete Trades merken (state/seen.json committen)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/seen.json
+          git diff --cached --quiet || git commit -m "Status: gemeldete Trades $(date -u +%F)"
+          git push
+
+      - name: Dashboard als Download speichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-${{ github.run_number }}
+          path: output/
+          retention-days: 14
