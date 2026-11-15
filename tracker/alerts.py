@@ -58,99 +58,29 @@ def new_trades(current: pd.DataFrame) -> tuple[pd.DataFrame, set[str]]:
 
 
 # --------------------------------------------------------------------------- Mail-Inhalt
-def _money(v):
-    if v is None or pd.isna(v):
-        return "–"
-    return f"{v / 1e6:.1f} Mio $" if v >= 1e6 else f"{v / 1e3:.0f} Tsd $"
-
-
-def _range(r):
-    lo, hi = r.get("amount_low"), r.get("amount_high")
-    if lo is None or pd.isna(lo):
-        return "–"
-    return _money(lo) if not hi or pd.isna(hi) or hi == lo else f"{_money(lo)} – {_money(hi)}"
-
-
 def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | None) -> tuple[str, str] | None:
-    buys = new[(new["type"] == "Kauf") & new["ticker"].notna() & new["asset_type"].isin(["ST", "OP"])]
+    """Wählt die neuen Käufe aus, sortiert nach Score und übergibt an das Newsletter-Layout."""
+    from tracker import newsletter
+
+    buys = new[(new["type"] == "Kauf") & new["ticker"].notna() & new["asset_type"].isin(["ST", "OP"])].copy()
     sells = new[new["type"] != "Kauf"]
     if buys.empty:
         return None  # nur Verkäufe -> keine Mail
 
     rk = ranking.set_index("ticker") if len(ranking) else pd.DataFrame()
+
     def info(t):
         return rk.loc[t].to_dict() if t in rk.index else {}
 
     def strong(t):
         i = info(t)
-        return bool(i) and (i.get("score", 0) >= STRONG_SCORE or i.get("has_committee") or
-                            i.get("call_options") or i.get("n_buyers", 0) >= 2)
+        return bool(i) and (i.get("score", 0) >= STRONG_SCORE or bool(i.get("has_committee")) or
+                            bool(i.get("call_options")) or i.get("n_buyers", 0) >= 2)
 
-    tickers = list(dict.fromkeys(buys["ticker"]))
-    strong_t = sorted([t for t in tickers if strong(t)], key=lambda t: -info(t).get("score", 0))
-    other_t = sorted([t for t in tickers if t not in strong_t], key=lambda t: -info(t).get("score", 0))
-
-    e = html.escape
-    css = ("font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1a1d23;"
-           "max-width:720px;margin:0 auto;padding:16px")
-    td = "padding:6px 8px;border-bottom:1px solid #e4e7ec;font-size:13px;vertical-align:top"
-    th = td + ";color:#667085;font-size:12px;text-align:left"
-
-    def stock_block(t):
-        i = info(t)
-        rows = buys[buys["ticker"] == t]
-        def who(r):
-            if r.get("source") == "Exekutive":  # Amt dazuschreiben, z. B. "President"
-                return (f"{e(str(r['person']))}<br><span style='color:#667085;font-size:11px'>"
-                        f"{e(str(r.get('role') or ''))}</span>")
-            return e(str(r["person"]))
-
-        trades = "".join(
-            f"<tr><td style='{td}'>{who(r)}</td><td style='{td}'>{r['tx_date']:%d.%m.%Y}</td>"
-            f"<td style='{td}'>{e(str(r.get('owner') or ''))}</td><td style='{td}'>{_range(r)}"
-            f"{' (Option)' if r['asset_type'] == 'OP' else ''}</td>"
-            f"<td style='{td}'><a href='{e(str(r['url']))}'>PDF</a></td></tr>" for _, r in rows.iterrows())
-        reasons = "".join(f"<li>{e(x)}</li>" for x in (i.get("reasons") or [])[:5])
-        score = (f"<b>Score {i['score']:.0f}</b> · Politiker {i['insider_score']:.0f} · "
-                 f"Fundamental {i['fundamental_score']:.0f}") if i else "nicht bewertet (z. B. zu klein oder ETF)"
-        name = e(str(i.get("name") or rows["asset"].iloc[0]))
-        reasons_html = (f"<ul style='margin:4px 0 8px;padding-left:18px;font-size:13px'>{reasons}</ul>"
-                        if reasons else "")
-        return (f"<div style='margin:14px 0;padding:12px;border:1px solid #e4e7ec;border-radius:10px'>"
-                f"<div style='font-size:16px'><b style='color:#2563eb'>{e(t)}</b> {name}</div>"
-                f"<div style='color:#667085;font-size:13px;margin:2px 0 6px'>{score}"
-                f"{' · ' + e(str(i.get('sector'))) if i.get('sector') else ''}</div>"
-                f"{reasons_html}"
-                f"<table style='border-collapse:collapse;width:100%'><tr><th style='{th}'>Politiker</th>"
-                f"<th style='{th}'>Trade-Datum</th><th style='{th}'>Eigentümer</th><th style='{th}'>Betrag</th>"
-                f"<th style='{th}'></th></tr>{trades}</table></div>")
-
-    parts = [f"<div style='{css}'>",
-             f"<h2 style='margin:0 0 4px'>Neue Politiker-Trades</h2>",
-             f"<div style='color:#667085;margin-bottom:12px'>{dt.date.today():%d.%m.%Y} · "
-             f"{len(buys)} neue Käufe in {len(tickers)} Aktien · {len(sells)} Verkäufe</div>"]
-    if dashboard_url:
-        parts.append(f"<p><a href='{e(dashboard_url)}'>Zum Dashboard</a></p>")
-    if strong_t:
-        parts.append("<h3 style='margin:18px 0 4px'>⭐ Starke Signale</h3>")
-        parts += [stock_block(t) for t in strong_t]
-    if other_t:
-        parts.append("<h3 style='margin:18px 0 4px'>Weitere neue Käufe</h3>")
-        parts += [stock_block(t) for t in other_t[:25]]
-        if len(other_t) > 25:
-            parts.append(f"<p style='color:#667085'>… und {len(other_t) - 25} weitere im Dashboard.</p>")
-    if len(sells):
-        top_sells = sells[sells["ticker"].notna()].groupby("ticker")["person"].nunique().sort_values(ascending=False)
-        if len(top_sells):
-            parts.append("<h3 style='margin:18px 0 4px'>Verkäufe</h3><p style='font-size:13px'>" +
-                         ", ".join(f"{e(t)} ({n})" for t, n in top_sells.head(20).items()) + "</p>")
-    parts.append("<p style='color:#667085;font-size:12px;margin-top:20px'>Keine Anlageberatung. "
-                 "Das komplette Dashboard hängt als HTML-Datei an.</p></div>")
-
-    subject = f"Politiker-Trades {dt.date.today():%d.%m.}: {len(buys)} Käufe"
-    if strong_t:
-        subject += f", ⭐ {', '.join(strong_t[:4])}"
-    return subject, "".join(parts)
+    buys["_score"] = buys["ticker"].map(lambda t: info(t).get("score", -1))
+    buys = buys.sort_values(["_score", "ticker", "tx_date"], ascending=[False, True, False])
+    strong_t = [t for t in dict.fromkeys(buys["ticker"]) if strong(t)]
+    return newsletter.build(buys, sells, info, strong_t, dashboard_url)
 
 
 def send(subject: str, body_html: str, attachment: str | None = None) -> None:
