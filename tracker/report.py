@@ -175,8 +175,13 @@ try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.
 
 $("#gen").textContent = D.generated; $("#hz").textContent = D.horizon;
 $("#stats").innerHTML = Object.entries(D.stats).map(([k,v])=>`<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("");
-document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===b));
- ["rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=b.dataset.t!==id);});
+// Tabs; per Link direkt öffnen: #musterdepot, #politiker, #trades
+const HASH={musterdepot:"pf",politiker:"pol",trades:"feed",ranking:"rank"};
+function showTab(t){document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.t===t));
+ ["rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=t!==id);}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{showTab(b.dataset.t);
+ const h=Object.keys(HASH).find(k=>HASH[k]===b.dataset.t);try{history.replaceState(null,"","#"+h)}catch(e){}});
+if(HASH[location.hash.slice(1)])showTab(HASH[location.hash.slice(1)]);
 
 // ------------------------------------------------------------- Aktien-Ranking
 const tags = r => (r.contracts?'<span class="tag c">Staatsauftrag</span>':'')+(r.has_committee?'<span class="tag">Zuständig</span>':'')+(r.call_options?'<span class="tag c">Calls</span>':'')+
