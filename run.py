@@ -28,6 +28,8 @@ def main():
     ap.add_argument("--days", type=int, default=config.CONGRESS_LOOKBACK_DAYS)
     ap.add_argument("--email", action="store_true",
                     help="Mail mit neuen Trades seit dem letzten Lauf verschicken (Gmail-Daten aus Umgebungsvariablen)")
+    ap.add_argument("--email-test", action="store_true",
+                    help="Beispiel-Mail mit allen Käufen der letzten 10 Tage senden (ändert den Status nicht)")
     ap.add_argument("--email-preview", action="store_true",
                     help="Mail nur als output/mail_preview.html erzeugen, nichts verschicken, Status nicht speichern")
     args = ap.parse_args()
@@ -83,7 +85,10 @@ def main():
         "Zeitraum": f"letzte {args.days} Tage",
     }
     path = report.write(ranking, current, leaderboard, stats)
-    if args.email or args.email_preview:
+    if args.email_test:
+        print("Test-Mail")
+        alerts.run(current, ranking, path, test=True)
+    elif args.email or args.email_preview:
         print("Mail-Zusammenfassung")
         alerts.run(current, ranking, path, dry_run=args.email_preview)
     print(f"\nFertig in {time.time() - t0:.0f}s -> {path}")

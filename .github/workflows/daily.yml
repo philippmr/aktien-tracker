@@ -3,7 +3,12 @@ name: Täglicher Politiker-Trade-Report
 on:
   schedule:
     - cron: "23 5 * * *"   # täglich 05:23 UTC = 06:23 (Winter) / 07:23 (Sommer) deutscher Zeit
-  workflow_dispatch: {}      # zusätzlich manuell startbar (Actions -> Run workflow)
+  workflow_dispatch:         # zusätzlich manuell startbar (Actions -> Run workflow)
+    inputs:
+      test_mail:
+        description: "Beispiel-Mail mit den Käufen der letzten 10 Tage senden (ändert nichts am Status)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write            # damit state/seen.json zurück ins Repo geschrieben werden kann
@@ -40,9 +45,15 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-        run: python run.py --email
+        run: |
+          if [ "${{ inputs.test_mail }}" = "true" ]; then
+            python run.py --email-test
+          else
+            python run.py --email
+          fi
 
       - name: Gemeldete Trades merken (state/seen.json committen)
+        if: ${{ inputs.test_mail != true }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -100,7 +100,22 @@ def send(subject: str, body_html: str, attachment: str | None = None) -> None:
         s.send_message(msg)
 
 
-def run(current: pd.DataFrame, ranking: pd.DataFrame, dashboard_path: str, *, dry_run=False, log=print):
+def run(current: pd.DataFrame, ranking: pd.DataFrame, dashboard_path: str, *, dry_run=False,
+        test=False, log=print):
+    """test=True: Beispiel-Mail mit allen Käufen der letzten 10 Tage, Status bleibt unverändert."""
+    if test:
+        new = current[current["filed"] >= dt.date.today() - dt.timedelta(days=10)]
+        digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"))
+        if digest is None:
+            log("  Test-Mail: keine Käufe in den letzten 10 Tagen")
+            return
+        subject = "[Test] " + digest[0]
+        if dry_run:
+            log(f"  Test-Mail (Vorschau): {subject}")
+            return
+        send(subject, digest[1], attachment=dashboard_path)
+        log(f"  Test-Mail verschickt: {subject}")
+        return
     new, keys = new_trades(current)
     digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"))
     if digest is None:
