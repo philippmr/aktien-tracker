@@ -152,3 +152,58 @@ def test_secfacts_only_uses_known_reports():
     assert f["rev_growth_q"] == pytest.approx(40 / 30 - 1)
     assert f["op_margin"] == pytest.approx(0.25) and f["fcf_positive"] and f["liab_to_equity"] == 0.5
     assert secfacts.at(data, dt.date(2025, 3, 1))["rev_growth"] == pytest.approx(0.5)  # jetzt bekannt
+
+
+# --------------------------------------------------------------------------- Dividenden & Crash
+def _divs(dates, amounts):
+    return pd.Series(amounts, index=pd.to_datetime(dates))
+
+
+def test_annual_dividend_quarterly_and_annual():
+    from tracker import dividends
+    q = _divs(["2023-03-01", "2023-06-01", "2023-09-01", "2023-12-01", "2024-03-01", "2024-06-01",
+               "2024-09-01", "2024-12-01", "2025-03-01", "2025-06-01", "2025-09-01", "2025-12-03"], [1.0] * 8 + [1.1] * 4)
+    assert dividends.annual_dividend(q, pd.Timestamp("2026-01-15")) == pytest.approx(4.4)
+    a = _divs(["2023-05-10", "2024-05-08", "2025-05-12"], [9.0, 10.0, 11.5])
+    assert dividends.annual_dividend(a, pd.Timestamp("2026-04-30")) == 11.5   # Zahlung 2026 noch nicht da -> keine Kürzung
+    assert dividends.annual_dividend(a, pd.Timestamp("2027-08-01")) is None   # über ein Jahr nichts gezahlt
+    assert dividends.growth_years(a) >= 2
+
+
+def test_dividend_zone_and_cut():
+    from tracker import dividends
+    idx = pd.date_range("2020-01-01", "2026-06-30", freq="B")
+    price = pd.Series(100.0, index=idx)
+    price.iloc[-60:] = 75.0     # Kurs fällt um 25 % -> Rendite +33 %
+    divs = _divs(pd.date_range("2019-03-01", "2026-06-01", freq="QS-MAR"), 1.0)
+    r = dividends.analyse_one("X", price, divs, {"payoutRatio": 0.5})
+    assert r["status"] == "zone" and r["rel"] == pytest.approx(4 / 75 / 0.04, rel=0.02)
+    cut = divs.copy()
+    cut.iloc[-4:] = 0.5
+    assert dividends.analyse_one("X", price, cut, {"payoutRatio": 0.5})["status"] == "cut"
+    assert dividends.analyse_one("X", price, divs, {"payoutRatio": 1.5, "freeCashflow": 1, "sharesOutstanding": 10,
+                                                    "currency": "USD", "financialCurrency": "USD"})["status"] == "risk"
+
+
+def test_crash_levels_once_and_reset():
+    from tracker import crash
+    meta = {}
+    st = lambda dd: [{"name": "S&P 500", "drawdown": dd, "level": max([l for l in crash.LEVELS if -dd * 100 >= l], default=0)}]
+    assert crash.new_alerts(st(-0.10), meta) == []
+    assert len(crash.new_alerts(st(-0.16), meta)) == 1
+    assert crash.new_alerts(st(-0.18), meta) == []          # gleiche Stufe nicht nochmal
+    assert len(crash.new_alerts(st(-0.27), meta)) == 1
+    crash.new_alerts(st(-0.03), meta)                       # Erholung -> zurückgesetzt
+    assert len(crash.new_alerts(st(-0.16), meta)) == 1
+
+
+def test_dividend_and_crash_mail_render():
+    row = {"ticker": "PEP", "name": "PepsiCo", "yield": 0.04, "yield_avg5": 0.029, "rel": 1.37, "growth_years": 27,
+           "payout": 0.73, "fcf_coverage": 1.1, "price": 135.0, "currency": "USD", "fair_price": 185.0, "from_high": -0.2,
+           "status": "zone"}
+    df = pd.DataFrame([row])
+    subj, body = newsletter.dividend_zone(df, df, "https://example.org")
+    assert "PEP" in subj and "+37 %" in body
+    s2, b2 = newsletter.crash_mail([{"name": "S&P 500", "drawdown": -0.26, "level": 25}],
+                                   [{"name": "S&P 500", "drawdown": -0.26}])
+    assert "-26" in s2 or "−26" in s2

@@ -139,11 +139,25 @@ def main():
             chances = screener.daily(pol, force=args.screener)
         except Exception as e:  # Screener-Fehler sollen Politiker-Teil und Mails nicht verhindern
             print(f"  Screener: Fehler ({e}), übersprungen")
+    print("Dividenden-Kaufzone & Crash-Check")
+    div, crash_st = None, []
+    try:
+        from tracker import dividends
+        div = dividends.scan()
+    except Exception as e:  # Zusatzmodul, soll den Lauf nie abbrechen
+        print(f"  Dividenden: Fehler ({e}), übersprungen")
+    try:
+        from tracker import crash
+        crash_st = crash.status()
+        print("  " + " · ".join(f"{r['name']} {r['drawdown'] * 100:.1f} %" for r in crash_st))
+    except Exception as e:
+        print(f"  Crash-Check: Fehler ({e}), übersprungen")
     path = report.write(ranking, current, leaderboard, stats, depots, chances,
-                        top_traders=tops_df.to_dict("records") if len(tops_df) else [])
+                        top_traders=tops_df.to_dict("records") if len(tops_df) else [],
+                        dividends=div.to_dict("records") if div is not None and len(div) else [], crash=crash_st)
     if args.auto:
         print("Automatik (Sofort-Alarm / Tagesmail / Wochenrückblick)")
-        alerts.auto(current, ranking, path, prices, chances, top_traders=tops)
+        alerts.auto(current, ranking, path, prices, chances, top_traders=tops, div=div, crash_st=crash_st)
     elif args.email_test:
         print("Test-Mail")
         alerts.run(current, ranking, path, test=True, chances=chances)

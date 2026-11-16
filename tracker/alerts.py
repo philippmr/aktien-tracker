@@ -260,7 +260,25 @@ def instant_top(current: pd.DataFrame, ranking: pd.DataFrame, tops: set[str], me
     log(f"  Top-Trader-Alarm verschickt: {who} – {what}")
 
 
-def auto(current, ranking, dashboard_path, prices, chances=None, top_traders=None, log=print) -> None:
+def dividends_and_crash(div, crash_st, meta: dict, today: str, digest_due: bool, log=print) -> None:
+    """Crash-Alarm bei jedem Lauf, Kaufzonen-Mail höchstens einmal am Tag (mit der Tagesmail)."""
+    from tracker import crash, dividends, newsletter
+    url = os.environ.get("DASHBOARD_URL")
+    if crash_st:
+        hits = crash.new_alerts(crash_st, meta)
+        if hits:
+            send(*newsletter.crash_mail(hits, crash_st, url))
+            log(f"  Crash-Alarm verschickt: {', '.join(h['name'] for h in hits)}")
+    if div is not None and len(div) and digest_due and meta.get("last_div") != today:
+        new = dividends.new_in_zone(div)
+        if len(new):
+            send(*newsletter.dividend_zone(new, div[div["status"] == "zone"], url))
+            log(f"  Kaufzonen-Mail verschickt: {', '.join(new['ticker'])}")
+        meta["last_div"] = today
+
+
+def auto(current, ranking, dashboard_path, prices, chances=None, top_traders=None, log=print,
+         div=None, crash_st=None) -> None:
     """Wird bei jedem (3-stündlichen) Lauf aufgerufen und entscheidet, was verschickt wird."""
     if not (os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD")):
         raise SystemExit("GMAIL_USER / GMAIL_APP_PASSWORD fehlen - in den GitHub-Secrets eintragen.")
@@ -273,6 +291,7 @@ def auto(current, ranking, dashboard_path, prices, chances=None, top_traders=Non
     instant(current, ranking, meta, log)
     log_signals(ranking)
 
+    dividends_and_crash(div, crash_st, meta, today, now.hour >= DIGEST_HOUR, log)
     if now.hour >= DIGEST_HOUR and meta.get("last_digest") != today:
         run(current, ranking, dashboard_path, log=log, chances=chances)   # Tagesmail
         meta["last_digest"] = today

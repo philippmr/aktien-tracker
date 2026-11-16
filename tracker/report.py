@@ -26,7 +26,8 @@ def _records(df: pd.DataFrame) -> list[dict]:
 
 
 def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame, stats: dict,
-          depots: dict | None = None, chances: dict | None = None, top_traders: list | None = None) -> str:
+          depots: dict | None = None, chances: dict | None = None, top_traders: list | None = None,
+          dividends: list | None = None, crash: list | None = None) -> str:
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     stamp = dt.date.today().isoformat()
 
@@ -52,6 +53,8 @@ def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame
         "depots": json.loads(json.dumps(depots or {}, default=_clean).replace("NaN", "null")),
         "chances": json.loads(json.dumps(chances or {}, default=_clean).replace("NaN", "null")),
         "top_traders": json.loads(json.dumps(top_traders or [], default=_clean).replace("NaN", "null")),
+        "dividends": json.loads(json.dumps(dividends or [], default=_clean).replace("NaN", "null")),
+        "crash": json.loads(json.dumps(crash or [], default=_clean).replace("NaN", "null")),
     }
     html = TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
     path = os.path.join(config.OUTPUT_DIR, "dashboard.html")
@@ -65,7 +68,7 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Politiker-Insider-Tracker</title>
+<title>Capitol Radar</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--text:#1a1d23;--muted:#667085;--line:#e4e7ec;--accent:#2563eb;
 --good:#15803d;--bad:#b91c1c;--chip:#eef2ff;--warn:#fff4e5;--warntext:#9a5b00}
@@ -113,11 +116,24 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 <div class="wrap">
 <button class="themebtn" onclick="toggleTheme()">◐ Theme</button>
 <h1>Capitol Radar</h1>
-<div class="sub">Chancen-Screener USA + Europa · Politiker-Käufe · Musterdepots · Stand <span id="gen"></span> · <a href="backtest.html">Backtest: Wie gut ist der Score?</a></div>
+<div class="sub">Dividenden-Kaufzone · Crash-Alarm · Politiker-Käufe · Musterdepots · Stand <span id="gen"></span> · <a href="backtest.html">Backtest: Wie gut ist der Score?</a></div>
 <div class="stats" id="stats"></div>
-<div class="tabs"><button class="tab on" data-t="ch">Chancen</button><button class="tab" data-t="rank">Politiker-Käufe</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button><button class="tab" data-t="pf">Musterdepot</button></div>
+<div class="tabs"><button class="tab on" data-t="div">Dividenden-Kaufzone</button><button class="tab" data-t="ch">Chancen</button><button class="tab" data-t="rank">Politiker-Käufe</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button><button class="tab" data-t="pf">Musterdepot</button></div>
 
-<div id="ch">
+<div id="div">
+ <div id="crashBox" class="stats"></div>
+ <div class="filters">
+  <input id="dq" placeholder="Ticker oder Name">
+  <select id="dst"><option value="">Alle</option><option value="zone" selected>Kaufzone</option><option value="near">Kaufzone + nah dran</option><option value="warn">Gekürzt / wackelig</option></select>
+  <select id="dreg"><option value="">USA + Europa</option><option value="us">nur USA</option><option value="eu">nur Europa</option></select>
+ </div>
+ <p class="note" style="margin:0 0 10px">Solide Dividendenzahler, deren Dividendenrendite deutlich über dem <b>eigenen</b> 5-Jahres-Schnitt liegt – die Aktie ist dann günstiger als üblich.
+ Kaufzone ab +20 %, „nah dran“ ab +10 %. Ausgeschlossen: Dividende im letzten Jahr gekürzt oder mehr ausgeschüttet als Gewinn <i>und</i> Free Cashflow hergeben.
+ „Fairer Kurs“ = Kurs, bei dem die Rendite wieder dem 5-Jahres-Schnitt entspräche. Günstig heißt nicht, dass es nicht weiter fällt – immer prüfen, warum.</p>
+ <div class="card"><table id="dt"><thead></thead><tbody></tbody></table></div>
+</div>
+
+<div id="ch" hidden>
  <div class="filters">
   <input id="cq" placeholder="Ticker oder Name">
   <select id="cstrat"><option value="">Alle Strategien</option></select>
@@ -188,9 +204,9 @@ try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.
 $("#gen").textContent = D.generated; $("#hz").textContent = D.horizon;
 $("#stats").innerHTML = Object.entries(D.stats).map(([k,v])=>`<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("");
 // Tabs; per Link direkt öffnen: #musterdepot, #politiker, #trades
-const HASH={chancen:"ch",musterdepot:"pf",politiker:"pol",trades:"feed",ranking:"rank"};
+const HASH={dividenden:"div",chancen:"ch",musterdepot:"pf",politiker:"pol",trades:"feed",ranking:"rank"};
 function showTab(t){document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.t===t));
- ["ch","rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=t!==id);}
+ ["div","ch","rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=t!==id);}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{showTab(b.dataset.t);
  const h=Object.keys(HASH).find(k=>HASH[k]===b.dataset.t);try{history.replaceState(null,"","#"+h)}catch(e){}});
 if(HASH[location.hash.slice(1)])showTab(HASH[location.hash.slice(1)]);
@@ -311,6 +327,25 @@ $("#pfDepots").innerHTML=Object.values(D.depots||{}).map(d=>`<h2 style="margin:2
  <div class="note" style="margin:0 0 8px">${d.label.startsWith("Trade")?"Trade-Score":"Halte-Score"} ≥ ${d.min} · Haltedauer ${d.hold} Tage</div>
  <h3 style="margin:10px 0 6px;font-size:15px">Live seit Start</h3>${pfBlock(d.live,true,d.min)}
  <h3 style="margin:18px 0 6px;font-size:15px">Simulation 2023 bis heute <span class="note">(gleiche Regeln auf historischen Daten – nur zur Orientierung)</span></h3>${pfBlock(d.sim,false,d.min)}`).join("");
+
+// ------------------------------------------------------------- Dividenden
+$("#crashBox").innerHTML=(D.crash||[]).map(c=>`<div class="stat"><b class="${c.drawdown<=-0.15?'neg':''}">${(c.drawdown*100).toFixed(1)} %</b><span>${esc(c.name)} unter Allzeithoch${c.drawdown<=-0.15?" – Nachkauf-Zone":""}</span></div>`).join("");
+const DST={zone:"tag c",near:"tag",normal:"",cut:"tag",risk:"tag"};
+$("#dt thead").innerHTML="<tr><th>Aktie</th><th>Status</th><th class='num'>Rendite jetzt</th><th class='num'>Ø 5 J</th><th class='num'>Über Schnitt</th><th class='num'>Kurs</th><th class='num'>Fairer Kurs</th><th class='num'>Jahre ohne Kürzung</th><th class='num'>Div. ggü. Vorjahr</th><th class='num'>Ausschüttung</th><th class='num'>FCF-Deckung</th><th class='num'>vom 52W-Hoch</th><th class='num'>KGV</th></tr>";
+function renderDiv(){
+ const q=$("#dq").value.toLowerCase(), st=$("#dst").value, rg=$("#dreg").value;
+ const rows=(D.dividends||[]).filter(r=>(!q||(r.ticker+" "+r.name).toLowerCase().includes(q))&&
+  (!st||(st==="zone"?r.status==="zone":st==="near"?["zone","near"].includes(r.status):["cut","risk"].includes(r.status)))&&
+  (!rg||(rg==="us")===!r.ticker.includes(".")));
+ const px=(v,c)=>v==null?"–":v.toLocaleString("de-DE",{maximumFractionDigits:2})+" "+esc(c||"");
+ $("#dt tbody").innerHTML=rows.length?rows.map(r=>`<tr><td><span class="tk">${esc(r.ticker)}</span><div class="nm">${esc(r.name)}</div></td>
+  <td><span class="${DST[r.status]}">${esc(r.status_label)}</span></td><td class="num"><b>${fmtNum(r.yield*100,2)} %</b></td><td class="num">${fmtNum(r.yield_avg5*100,2)} %</td>
+  <td class="num">${fmtPct(r.rel-1)}</td><td class="num">${px(r.price,r.currency)}</td><td class="num">${px(r.fair_price,r.currency)}</td>
+  <td class="num">${r.growth_years}</td><td class="num">${fmtPct(r.div_change_1y)}</td><td class="num">${r.payout==null?"–":(r.payout*100).toFixed(0)+" %"}</td>
+  <td class="num">${r.fcf_coverage==null?"–":r.fcf_coverage.toFixed(1)+"×"}</td><td class="num">${fmtPct(r.from_high)}</td><td class="num">${fmtNum(r.pe,1)}</td></tr>`).join("")
+  :`<tr><td colspan="13" style="padding:16px">Gerade keine Aktie in dieser Auswahl.</td></tr>`;}
+["#dq","#dst","#dreg"].forEach(s=>$(s).oninput=renderDiv);
+renderDiv();
 
 // ------------------------------------------------------------- Feed
 $("#ft thead").innerHTML="<tr><th>Trade</th><th>Gemeldet</th><th>Amt</th><th>Ticker</th><th>Asset</th><th>Politiker</th><th>Eigentümer</th><th>Art</th><th class='num'>Betrag</th><th>Beschreibung</th><th></th></tr>";

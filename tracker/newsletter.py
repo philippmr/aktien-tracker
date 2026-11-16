@@ -407,3 +407,67 @@ def failure(run_url: str) -> str:
             f"<span class='mut' style='color:{MUTED};font-size:12px'>Der nächste Lauf versucht es automatisch erneut.</span>"
             f"</td></tr>"]
     return _shell(rows)
+
+
+# --------------------------------------------------------------------------- Dividenden & Crash
+def _pct(v, d=1):
+    return "–" if v is None or pd.isna(v) else f"{v * 100:.{d}f} %"
+
+
+def _div_card(r) -> str:
+    cov = r.get("fcf_coverage")
+    facts = [f"Rendite <b>{_pct(r['yield'])}</b> statt sonst {_pct(r['yield_avg5'])}",
+             f"{int(r['growth_years'])} Jahre ohne Kürzung" if r["growth_years"] else "",
+             f"Ausschüttung {_pct(r['payout'], 0)} vom Gewinn" if r.get("payout") is not None and not pd.isna(r["payout"]) else "",
+             f"FCF deckt Dividende {cov:.1f}×" if cov is not None and not pd.isna(cov) else ""]
+    facts = " · ".join(f for f in facts if f)
+    price = f"{r['price']:,.2f} {e(str(r.get('currency') or ''))}".replace(",", " ")
+    fair = f"{r['fair_price']:,.2f}".replace(",", " ")
+    return (f"<tr><td style='padding:6px 24px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' class='card' "
+            f"style='background:{CARD};border:1px solid {LINE};border-radius:14px'><tr><td style='padding:14px 16px'>"
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+            f"<td><span class='ink' style='font-size:17px;font-weight:800;color:{INK}'>{e(str(r['ticker']))}</span> "
+            f"<span class='mut' style='font-size:13px;color:{MUTED}'>{e(str(r['name']))}</span></td>"
+            f"<td align='right' style='font-size:20px;font-weight:800;color:{GOOD};white-space:nowrap;padding-left:8px'>{(r['rel'] - 1) * 100:+.0f} %</td></tr></table>"
+            f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:2px'>Dividendenrendite über dem 5-Jahres-Schnitt</div>"
+            f"<div class='ink' style='font-size:13px;color:{INK};margin-top:8px;line-height:1.5'>{facts}</div>"
+            f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:6px'>Kurs {price} · normal bewertet wäre ca. {fair} · "
+            f"{_pct(r['from_high'], 0)} vom 52-Wochen-Hoch</div></td></tr></table></td></tr>")
+
+
+def dividend_zone(new: pd.DataFrame, all_zone: pd.DataFrame, dashboard_url=None) -> tuple[str, str]:
+    rows = [_header("Neu in der Kaufzone",
+                    "Solide Dividendenzahler, deren Dividendenrendite deutlich über dem eigenen 5-Jahres-Schnitt liegt "
+                    "– die Aktie ist also günstiger als üblich, und die Dividende sieht sicher aus.", dashboard_url)]
+    rows.append(_section(f"{len(new)} neu", "Seit dem letzten Check"))
+    rows += [_div_card(r) for r in new.to_dict("records")]
+    rest = all_zone[~all_zone["ticker"].isin(new["ticker"])]
+    if len(rest):
+        rows.append(_section("Weiter in der Kaufzone"))
+        rows.append("<tr><td style='padding:0 24px'>" + "".join(
+            _chip(f"<b>{e(str(r['ticker']))}</b> {(r['rel'] - 1) * 100:+.0f} %") for r in rest.to_dict("records")) + "</td></tr>")
+    rows.append(f"<tr><td style='padding:18px 24px 24px' class='mut'><div style='font-size:11px;color:{MUTED};line-height:1.5'>"
+                f"Kaufzone = Dividendenrendite ≥ 120 % des eigenen 5-Jahres-Medians, Dividende im letzten Jahr nicht gekürzt, "
+                f"nicht mehr als Gewinn und Free Cashflow ausgeschüttet. Günstig heißt nicht, dass es nicht weiter fällt – "
+                f"erst prüfen, <i>warum</i> die Aktie gefallen ist. Keine Anlageberatung.</div></td></tr>")
+    names = ", ".join(new["ticker"].head(4))
+    return f"Kaufzone: {names}{' …' if len(new) > 4 else ''}", _shell(rows)
+
+
+def crash_mail(hits: list[dict], allst: list[dict], dashboard_url=None) -> tuple[str, str]:
+    worst = max(hits, key=lambda r: r["level"])
+    rows = [_header(f"{worst['name']} {worst['drawdown'] * 100:.0f} % unter dem Hoch",
+                    "Große Rücksetzer waren historisch die besten Nachkauf-Gelegenheiten – "
+                    "vorausgesetzt, man hat einen langen Atem und verkauft nicht in Panik.", dashboard_url)]
+    rows.append(_section("Stand der Indizes"))
+    lines = "".join(
+        f"<tr><td class='line ink' style='padding:9px 0;border-bottom:1px solid {LINE};color:{INK};font-weight:700'>{e(r['name'])}</td>"
+        f"<td class='line' style='padding:9px 0;border-bottom:1px solid {LINE};text-align:right;font-weight:800;"
+        f"color:{'#b91c1c' if r['drawdown'] <= -0.15 else INK}'>{r['drawdown'] * 100:.1f} %</td></tr>" for r in allst)
+    rows.append(f"<tr><td style='padding:0 24px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{lines}</table></td></tr>")
+    rows.append(f"<tr><td style='padding:18px 24px 24px;font-size:14px;line-height:1.6' class='ink'>"
+                f"<b>Plan statt Bauchgefühl:</b> Sparplan weiterlaufen lassen. Ab −15 % eine Extra-Rate, ab −25 % noch eine, "
+                f"ab −35 % die letzte. Nur Geld, das du 5+ Jahre nicht brauchst.<br>"
+                f"<span class='mut' style='font-size:11px;color:{MUTED}'>Stufen: 15 / 25 / 35 % unter Allzeithoch, jede Stufe wird "
+                f"einmal gemeldet. Keine Anlageberatung.</span></td></tr>")
+    return f"Crash-Alarm: {worst['name']} {worst['drawdown'] * 100:.0f} %", _shell(rows)

@@ -20,12 +20,15 @@ FIELDS = [
     "heldPercentInsiders", "shortPercentOfFloat",
     "enterpriseToRevenue", "ebitda", "totalRevenue", "earningsQuarterlyGrowth", "returnOnEquity",
     "currency", "financialCurrency", "longName",
+    "payoutRatio", "dividendRate", "sharesOutstanding", "fiveYearAvgDividendYield",
 ]
 
 
 def yf_symbol(t: str) -> str:
     """US-Aktienklassen 'BRK.B' -> Yahoo 'BRK-B'; Börsenkürzel wie 'SIE.DE' bleiben."""
     import re
+    if t.endswith((".L", ".F", ".V")):   # London, Frankfurt, TSX Venture
+        return t
     return t.replace(".", "-") if re.fullmatch(r"[A-Z]+\.[A-Z]", t) else t
 
 
