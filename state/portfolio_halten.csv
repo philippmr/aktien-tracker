@@ -1,0 +1,23 @@
+ticker,name,signal_date,score,entry_date,entry_price,spy_entry,exit_date,exit_price,spy_exit,status
+GOOGL,Alphabet Inc.,2026-11-16,100.0,,,,,,,wartet
+NVDA,NVIDIA Corporation,2026-11-16,100.0,,,,,,,wartet
+MSFT,Microsoft Corporation,2026-11-16,100.0,,,,,,,wartet
+META,"Meta Platforms, Inc.",2026-11-16,100.0,,,,,,,wartet
+AMAT,"Applied Materials, Inc.",2026-11-16,90.0,,,,,,,wartet
+TSM,Taiwan Semiconductor Manufactur,2026-11-16,90.0,,,,,,,wartet
+APP,Applovin Corporation,2026-11-16,90.0,,,,,,,wartet
+NXPI,NXP Semiconductors N.V.,2026-11-16,90.0,,,,,,,wartet
+FIS,Fidelity National Information S,2026-11-16,90.0,,,,,,,wartet
+AVGO,Broadcom Inc.,2026-11-16,90.0,,,,,,,wartet
+PODD,Insulet Corporation,2026-11-16,75.0,,,,,,,wartet
+FITB,Fifth Third Bancorp,2026-11-16,70.0,,,,,,,wartet
+ISRG,"Intuitive Surgical, Inc.",2026-11-16,70.0,,,,,,,wartet
+PLTR,Palantir Technologies Inc.,2026-11-16,70.0,,,,,,,wartet
+ORCL,Oracle Corporation,2026-11-16,70.0,,,,,,,wartet
+LRCX,Lam Research Corporation,2026-11-16,70.0,,,,,,,wartet
+FOXA,Fox Corporation,2026-11-16,70.0,,,,,,,wartet
+ADSK,"Autodesk, Inc.",2026-11-16,70.0,,,,,,,wartet
+REGN,"Regeneron Pharmaceuticals, Inc.",2026-11-16,70.0,,,,,,,wartet
+TDG,Transdigm Group Incorporated,2026-11-16,70.0,,,,,,,wartet
+TXN,Texas Instruments Incorporated,2026-11-16,70.0,,,,,,,wartet
+LLY,Eli Lilly and Company,2026-11-16,70.0,,,,,,,wartet

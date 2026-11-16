@@ -1,0 +1,9 @@
+ticker,name,signal_date,score,entry_date,entry_price,spy_entry,exit_date,exit_price,spy_exit,status
+GOOGL,Alphabet Inc.,2026-11-16,99.1,,,,,,,wartet
+NVDA,NVIDIA Corporation,2026-11-16,96.0,,,,,,,wartet
+MSFT,Microsoft Corporation,2026-11-16,78.5,,,,,,,wartet
+META,"Meta Platforms, Inc.",2026-11-16,87.1,,,,,,,wartet
+AMAT,"Applied Materials, Inc.",2026-11-16,81.5,,,,,,,wartet
+TSM,Taiwan Semiconductor Manufactur,2026-11-16,79.8,,,,,,,wartet
+CMCSA,Comcast Corporation,2026-11-16,84.0,,,,,,,wartet
+PG,Procter & Gamble Company (The),2026-11-16,73.7,,,,,,,wartet
