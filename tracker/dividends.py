@@ -36,7 +36,16 @@ UNIVERSE = [
     # Europa
     "NESN.SW", "NOVN.SW", "ZURN.SW", "ULVR.L", "DGE.L", "BATS.L", "OR.PA", "SAN.PA", "BN.PA", "AI.PA",
     "TTE.PA", "ASML.AS",
+    # von Helmut Jonen in Interviews genannt
+    "UPS", "MC.PA", "HEIA.AS", "J36.SI", "NOVO-B.CO", "SHEL.L",
 ]
+
+# Helmut Jonens Faustregeln (Interviews BÖRSE ONLINE, Der Aktionär, Beating Beta)
+MIN_YIELD = 0.03            # "so ungefähr 3 % sollte die Dividendenrendite liegen"
+MIN_YIELD_CYCLICAL = 0.04   # "bei Zyklern ... Richtung 4 oder 4,5 %"
+DIP = -0.20                 # Qualität nachkaufen "in einer Korrektur von 20 oder 25 %"
+MAX_PE = 25                 # "KGV von um die 40 ... nicht mehr preiswert"; S&P-Schnitt ~17
+CYCLICAL = {"Industrials", "Basic Materials", "Consumer Cyclical", "Energy"}
 
 ZONE_REL = 1.20      # Dividendenrendite ≥ 120 % des eigenen 5-Jahres-Medians -> Kaufzone
 NEAR_REL = 1.10      # ab 110 % -> "nah dran"
@@ -144,14 +153,29 @@ def analyse_one(ticker: str, price: pd.Series, divs: pd.Series, info: dict) -> d
     rel = y_now / y_avg
     status = ("cut" if cut else "risk" if risky else "zone" if rel >= ZONE_REL else "near" if rel >= NEAR_REL else "normal")
     hi52 = price[price.index > now - pd.Timedelta(days=365)].max()
+    from_high = float(price.iloc[-1] / hi52 - 1)
+    cyclical = (info.get("sector") or "") in CYCLICAL
+    min_y = MIN_YIELD_CYCLICAL if cyclical else MIN_YIELD
+    pe = info.get("trailingPE")
+    # Jonen-Check: seine Kriterien einzeln abgehakt
+    checks = {
+        f"Rendite ≥ {min_y * 100:.0f} %": y_now >= min_y,
+        "über eigenem 5-J-Schnitt": rel >= NEAR_REL,
+        "≥ 20 % unter Hoch": from_high <= DIP,
+        "Cashflow deckt Dividende": coverage is not None and coverage >= 1.0,
+        "Dividende nicht gekürzt": not cut,
+        f"KGV ≤ {MAX_PE}": pe is not None and 0 < pe <= MAX_PE,
+    }
     return {
         "ticker": ticker, "name": str(info.get("longName") or info.get("shortName") or ticker).strip() if (info.get("longName") or info.get("shortName")) else ticker,
         "sector": info.get("sector"), "currency": info.get("currency"),
         "price": float(price.iloc[-1]), "yield": y_now, "yield_avg5": y_avg, "rel": rel,
         "fair_price": d_now / y_avg,     # Kurs, bei dem die Rendite wieder dem 5-J-Schnitt entspräche
         "div_change_1y": change_1y, "growth_years": growth_years(divs),
-        "payout": payout, "fcf_coverage": coverage, "from_high": float(price.iloc[-1] / hi52 - 1),
-        "pe": info.get("trailingPE"), "status": status, "status_label": STATUS_LABEL[status],
+        "payout": payout, "fcf_coverage": coverage, "from_high": from_high,
+        "pe": pe, "status": status, "status_label": STATUS_LABEL[status],
+        "cyclical": cyclical, "buy_price": d_now / min_y,   # Kurs, ab dem die Wunschrendite erreicht ist
+        "checks": checks, "jonen": int(sum(checks.values())),
     }
 
 
@@ -175,7 +199,8 @@ def scan(tickers=UNIVERSE, log=print) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if len(df):
         order = {"zone": 0, "near": 1, "normal": 2, "risk": 3, "cut": 4}
-        df = df.sort_values(["status", "rel"], key=lambda c: c.map(order) if c.name == "status" else -c).reset_index(drop=True)
+        df["_o"] = df["status"].map(order)
+        df = df.sort_values(["_o", "jonen", "rel"], ascending=[True, False, False]).drop(columns="_o").reset_index(drop=True)
         log(f"  {int((df['status'] == 'zone').sum())} in der Kaufzone, {int((df['status'] == 'near').sum())} nah dran")
     return df
 

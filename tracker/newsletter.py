@@ -429,7 +429,10 @@ def _div_card(r) -> str:
             f"<td><span class='ink' style='font-size:17px;font-weight:800;color:{INK}'>{e(str(r['ticker']))}</span> "
             f"<span class='mut' style='font-size:13px;color:{MUTED}'>{e(str(r['name']))}</span></td>"
             f"<td align='right' style='font-size:20px;font-weight:800;color:{GOOD};white-space:nowrap;padding-left:8px'>{(r['rel'] - 1) * 100:+.0f} %</td></tr></table>"
-            f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:2px'>Dividendenrendite über dem 5-Jahres-Schnitt</div>"
+            f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:2px'>Dividendenrendite über dem 5-Jahres-Schnitt · "
+            f"<b style='color:{GOOD if r.get('jonen', 0) >= 5 else MID}'>Jonen-Check {r.get('jonen', 0)}/6</b></div>"
+            + (f"<div style='margin-top:6px'>" + "".join(_chip(('✓ ' if ok else '✗ ') + e(k)) for k, ok in (r.get('checks') or {}).items()) + "</div>"
+               if r.get("checks") else "") +
             f"<div class='ink' style='font-size:13px;color:{INK};margin-top:8px;line-height:1.5'>{facts}</div>"
             f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:6px'>Kurs {price} · normal bewertet wäre ca. {fair} · "
             f"{_pct(r['from_high'], 0)} vom 52-Wochen-Hoch</div></td></tr></table></td></tr>")
@@ -448,7 +451,8 @@ def dividend_zone(new: pd.DataFrame, all_zone: pd.DataFrame, dashboard_url=None)
             _chip(f"<b>{e(str(r['ticker']))}</b> {(r['rel'] - 1) * 100:+.0f} %") for r in rest.to_dict("records")) + "</td></tr>")
     rows.append(f"<tr><td style='padding:18px 24px 24px' class='mut'><div style='font-size:11px;color:{MUTED};line-height:1.5'>"
                 f"Kaufzone = Dividendenrendite ≥ 120 % des eigenen 5-Jahres-Medians, Dividende im letzten Jahr nicht gekürzt, "
-                f"nicht mehr als Gewinn und Free Cashflow ausgeschüttet. Günstig heißt nicht, dass es nicht weiter fällt – "
+                f"nicht mehr als Gewinn und Free Cashflow ausgeschüttet. Jonen-Check = seine Faustregeln aus Interviews: Rendite ≥ 3 % "
+                f"(Zykliker ≥ 4 %), über eigenem Schnitt, ≥ 20 % unter Hoch, Cashflow deckt Dividende, keine Kürzung, KGV ≤ 25. Günstig heißt nicht, dass es nicht weiter fällt – "
                 f"erst prüfen, <i>warum</i> die Aktie gefallen ist. Keine Anlageberatung.</div></td></tr>")
     names = ", ".join(new["ticker"].head(4))
     return f"Kaufzone: {names}{' …' if len(new) > 4 else ''}", _shell(rows)

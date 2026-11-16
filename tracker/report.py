@@ -124,12 +124,14 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
  <div id="crashBox" class="stats"></div>
  <div class="filters">
   <input id="dq" placeholder="Ticker oder Name">
-  <select id="dst"><option value="">Alle</option><option value="zone" selected>Kaufzone</option><option value="near">Kaufzone + nah dran</option><option value="warn">Gekürzt / wackelig</option></select>
+  <select id="dst"><option value="">Alle</option><option value="zone" selected>Kaufzone</option><option value="near">Kaufzone + nah dran</option><option value="warn">Gekürzt / wackelig</option><option value="j5">Jonen-Check ≥ 5/6</option></select>
   <select id="dreg"><option value="">USA + Europa</option><option value="us">nur USA</option><option value="eu">nur Europa</option></select>
  </div>
  <p class="note" style="margin:0 0 10px">Solide Dividendenzahler, deren Dividendenrendite deutlich über dem <b>eigenen</b> 5-Jahres-Schnitt liegt – die Aktie ist dann günstiger als üblich.
  Kaufzone ab +20 %, „nah dran“ ab +10 %. Ausgeschlossen: Dividende im letzten Jahr gekürzt oder mehr ausgeschüttet als Gewinn <i>und</i> Free Cashflow hergeben.
- „Fairer Kurs“ = Kurs, bei dem die Rendite wieder dem 5-Jahres-Schnitt entspräche. Günstig heißt nicht, dass es nicht weiter fällt – immer prüfen, warum.</p>
+ „Fairer Kurs“ = Kurs, bei dem die Rendite wieder dem 5-Jahres-Schnitt entspräche.
+ <b>Jonen-Check</b> = Helmut Jonens Faustregeln aus Interviews (Maus über die Zahl zeigt die Details): Rendite ≥ 3 % (Zykliker ≥ 4 %), über eigenem Schnitt, ≥ 20 % unter Hoch,
+ Cashflow deckt Dividende, keine Kürzung, KGV ≤ 25. „Kurs für Wunschrendite“ = Kurs, ab dem 3 % (Zykliker 4 %) erreicht sind – so setzt er Kauflimits. Günstig heißt nicht, dass es nicht weiter fällt – immer prüfen, warum.</p>
  <div class="card"><table id="dt"><thead></thead><tbody></tbody></table></div>
 </div>
 
@@ -331,19 +333,20 @@ $("#pfDepots").innerHTML=Object.values(D.depots||{}).map(d=>`<h2 style="margin:2
 // ------------------------------------------------------------- Dividenden
 $("#crashBox").innerHTML=(D.crash||[]).map(c=>`<div class="stat"><b class="${c.drawdown<=-0.15?'neg':''}">${(c.drawdown*100).toFixed(1)} %</b><span>${esc(c.name)} unter Allzeithoch${c.drawdown<=-0.15?" – Nachkauf-Zone":""}</span></div>`).join("");
 const DST={zone:"tag c",near:"tag",normal:"",cut:"tag",risk:"tag"};
-$("#dt thead").innerHTML="<tr><th>Aktie</th><th>Status</th><th class='num'>Rendite jetzt</th><th class='num'>Ø 5 J</th><th class='num'>Über Schnitt</th><th class='num'>Kurs</th><th class='num'>Fairer Kurs</th><th class='num'>Jahre ohne Kürzung</th><th class='num'>Div. ggü. Vorjahr</th><th class='num'>Ausschüttung</th><th class='num'>FCF-Deckung</th><th class='num'>vom 52W-Hoch</th><th class='num'>KGV</th></tr>";
+$("#dt thead").innerHTML="<tr><th>Aktie</th><th>Status</th><th class='num'>Rendite jetzt</th><th class='num'>Ø 5 J</th><th class='num'>Über Schnitt</th><th class='num'>Jonen-Check</th><th class='num'>Kurs</th><th class='num'>Fairer Kurs</th><th class='num'>Kurs für Wunschrendite</th><th class='num'>Jahre ohne Kürzung</th><th class='num'>Div. ggü. Vorjahr</th><th class='num'>Ausschüttung</th><th class='num'>FCF-Deckung</th><th class='num'>vom 52W-Hoch</th><th class='num'>KGV</th></tr>";
 function renderDiv(){
  const q=$("#dq").value.toLowerCase(), st=$("#dst").value, rg=$("#dreg").value;
  const rows=(D.dividends||[]).filter(r=>(!q||(r.ticker+" "+r.name).toLowerCase().includes(q))&&
-  (!st||(st==="zone"?r.status==="zone":st==="near"?["zone","near"].includes(r.status):["cut","risk"].includes(r.status)))&&
+  (!st||(st==="j5"?r.jonen>=5:st==="zone"?r.status==="zone":st==="near"?["zone","near"].includes(r.status):["cut","risk"].includes(r.status)))&&
   (!rg||(rg==="us")===!r.ticker.includes(".")));
  const px=(v,c)=>v==null?"–":v.toLocaleString("de-DE",{maximumFractionDigits:2})+" "+esc(c||"");
  $("#dt tbody").innerHTML=rows.length?rows.map(r=>`<tr><td><span class="tk">${esc(r.ticker)}</span><div class="nm">${esc(r.name)}</div></td>
   <td><span class="${DST[r.status]}">${esc(r.status_label)}</span></td><td class="num"><b>${fmtNum(r.yield*100,2)} %</b></td><td class="num">${fmtNum(r.yield_avg5*100,2)} %</td>
-  <td class="num">${fmtPct(r.rel-1)}</td><td class="num">${px(r.price,r.currency)}</td><td class="num">${px(r.fair_price,r.currency)}</td>
+  <td class="num">${fmtPct(r.rel-1)}</td><td class="num" title="${esc(Object.entries(r.checks||{}).map(([k,v])=>(v?"✓ ":"✗ ")+k).join("\n"))}"><b class="${r.jonen>=5?'pos':''}">${r.jonen??"–"}/6</b></td>
+  <td class="num">${px(r.price,r.currency)}</td><td class="num">${px(r.fair_price,r.currency)}</td><td class="num">${px(r.buy_price,r.currency)}</td>
   <td class="num">${r.growth_years}</td><td class="num">${fmtPct(r.div_change_1y)}</td><td class="num">${r.payout==null?"–":(r.payout*100).toFixed(0)+" %"}</td>
   <td class="num">${r.fcf_coverage==null?"–":r.fcf_coverage.toFixed(1)+"×"}</td><td class="num">${fmtPct(r.from_high)}</td><td class="num">${fmtNum(r.pe,1)}</td></tr>`).join("")
-  :`<tr><td colspan="13" style="padding:16px">Gerade keine Aktie in dieser Auswahl.</td></tr>`;}
+  :`<tr><td colspan="15" style="padding:16px">Gerade keine Aktie in dieser Auswahl.</td></tr>`;}
 ["#dq","#dst","#dreg"].forEach(s=>$(s).oninput=renderDiv);
 renderDiv();
 
