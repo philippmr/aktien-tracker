@@ -435,6 +435,7 @@ def _div_card(r) -> str:
                if r.get("checks") else "") +
             f"<div class='ink' style='font-size:13px;color:{INK};margin-top:8px;line-height:1.5'>{facts}</div>"
             f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:6px'>Kurs {price} · normal bewertet wäre ca. {fair} · "
+            + (f"Kaufkurs für Wunschrendite {r['buy_price']:,.2f} · ".replace(",", " ") if r.get("buy_price") else "") +
             f"{_pct(r['from_high'], 0)} vom 52-Wochen-Hoch</div></td></tr></table></td></tr>")
 
 
