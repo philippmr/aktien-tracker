@@ -31,6 +31,7 @@ def main():
                     help="Mail mit neuen Trades seit dem letzten Lauf verschicken (Gmail-Daten aus Umgebungsvariablen)")
     ap.add_argument("--auto", action="store_true",
                     help="Für den Zeitplan (alle 3 h): Sofort-Alarm, Tagesmail ab 6 Uhr, Wochenrückblick montags")
+    ap.add_argument("--screener", action="store_true", help="Chancen-Screener neu rechnen, auch wenn er heute schon lief")
     ap.add_argument("--backtest", action="store_true",
                     help="Backtest rechnen und output/backtest.html schreiben (dauert einige Minuten)")
     ap.add_argument("--email-test", action="store_true",
@@ -88,7 +89,7 @@ def main():
         with open(os.path.join(config.OUTPUT_DIR, "backtest.html"), "w", encoding="utf-8") as f:
             f.write(backtest.report_html(ev))
         print(f"  {len(ev)} Ereignisse ausgewertet -> output/backtest.html")
-        for depot in portfolio.DEPOTS:
+        for depot in ("trade", "halten"):
             sim = portfolio.simulate(ev, prices, depot, bt_fund)
             print(f"  Simulation {portfolio.DEPOTS[depot]['label']}: {sim['n']} Käufe, "
                   f"Ø Überrendite {sim.get('excess', 0) * 100:+.2f} %")
@@ -112,22 +113,43 @@ def main():
         "Bewertete Aktien": len(ranking),
         "Zeitraum": f"letzte {args.days} Tage",
     }
+    # Top-Trader: großes Volumen + guter Track Record (ab Meldung, 1 Jahr)
+    tops_df = performance.top_traders(hist, prices)
+    tops = set(tops_df.loc[tops_df["is_top"], "person"]) if len(tops_df) else set()
+    print(f"  Top-Trader: {', '.join(sorted(tops)) or 'keine'}")
+    if args.backtest and tops:
+        sim = portfolio.simulate_trades(hist, prices, tops)
+        print(f"  Simulation Top-Trader-Depot: {sim['n']} Käufe, Ø Überrendite {sim.get('excess', 0) * 100:+.2f} %")
+
     depots = {}
     for depot, cfg in portfolio.DEPOTS.items():
         # nur der Zeitplan-Lauf führt die Musterdepots fort
-        pf = portfolio.update(ranking, prices, depot) if args.auto else portfolio._load(depot)
+        if depot == "top":
+            pf = portfolio.update_from_trades(current, prices, tops) if args.auto else portfolio._load(depot)
+        else:
+            pf = portfolio.update(ranking, prices, depot) if args.auto else portfolio._load(depot)
         depots[depot] = {"label": cfg["label"], "min": cfg["min"], "hold": cfg["hold"],
                          "live": portfolio.summary(pf, prices), "sim": portfolio.load_sim(depot)}
-    path = report.write(ranking, current, leaderboard, stats, depots)
+    chances = {}
+    if config.SCREENER_ENABLED or args.screener:
+        print("Chancen-Screener (USA + Europa, einmal täglich)")
+        from tracker import screener
+        pol = set(current.loc[current["type"] == "Kauf", "ticker"].dropna())
+        try:
+            chances = screener.daily(pol, force=args.screener)
+        except Exception as e:  # Screener-Fehler sollen Politiker-Teil und Mails nicht verhindern
+            print(f"  Screener: Fehler ({e}), übersprungen")
+    path = report.write(ranking, current, leaderboard, stats, depots, chances,
+                        top_traders=tops_df.to_dict("records") if len(tops_df) else [])
     if args.auto:
         print("Automatik (Sofort-Alarm / Tagesmail / Wochenrückblick)")
-        alerts.auto(current, ranking, path, prices)
+        alerts.auto(current, ranking, path, prices, chances, top_traders=tops)
     elif args.email_test:
         print("Test-Mail")
-        alerts.run(current, ranking, path, test=True)
+        alerts.run(current, ranking, path, test=True, chances=chances)
     elif args.email or args.email_preview:
         print("Mail-Zusammenfassung")
-        alerts.run(current, ranking, path, dry_run=args.email_preview)
+        alerts.run(current, ranking, path, dry_run=args.email_preview, chances=chances)
     print(f"\nFertig in {time.time() - t0:.0f}s -> {path}")
     if len(ranking):
         cols = ["ticker", "name", "score", "insider_score", "fundamental_score", "n_buyers", "committee"]

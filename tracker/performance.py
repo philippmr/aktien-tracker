@@ -16,12 +16,13 @@ BENCHMARK = "SPY"
 
 
 def _yf(t: str) -> str:
-    return t.replace(".", "-")
+    from tracker.fundamentals import yf_symbol
+    return yf_symbol(t)
 
 
 def load_prices(tickers, start: dt.date, log=print) -> pd.DataFrame:
     """Tägliche Schlusskurse (Spalten = Ticker). Wird pro Tag gecacht."""
-    tickers = sorted(set(tickers) | {BENCHMARK})
+    tickers = sorted(set(tickers) | {BENCHMARK, "QQQ"})
     os.makedirs(config.CACHE_DIR, exist_ok=True)
     path = os.path.join(config.CACHE_DIR, "prices.pkl")
     cached = pd.DataFrame()
@@ -97,3 +98,46 @@ def track_records(history: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
         "avg_excess": g["excess"].mean(),
         "median_excess": g["excess"].median(),
     })
+
+
+def _excess_from(prices: pd.DataFrame, ticker: str, day: dt.date, days: int) -> float | None:
+    """Rendite ab dem ersten Handelstag NACH `day` über `days` Tage, minus S&P 500."""
+    if ticker not in prices.columns:
+        return None
+    s, spy = prices[ticker].dropna(), prices[BENCHMARK].dropna()
+    a = s[s.index.date > day]
+    if a.empty:
+        return None
+    d0 = a.index[0]
+    b, s0, s1 = s[s.index >= d0 + pd.Timedelta(days=days)], spy[spy.index >= d0], \
+        spy[spy.index >= d0 + pd.Timedelta(days=days)]
+    if b.empty or s1.empty:
+        return None
+    return float(b.iloc[0] / a.iloc[0] - 1 - (s1.iloc[0] / s0.iloc[0] - 1))
+
+
+def top_traders(history: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """Politiker mit großem Kaufvolumen UND gutem Track Record – gemessen so, wie ein Nachkäufer
+    es erlebt hätte: ab dem Tag nach der MELDUNG, 1 Jahr gehalten, im Vergleich zum S&P 500."""
+    from tracker import scoring
+    buys = history[(history["type"] == "Kauf") & history["ticker"].notna()
+                   & history["asset_type"].isin(["ST", "OP"]) & history["filed"].notna()].copy()
+    buys = buys[~buys.apply(scoring.is_reinvest, axis=1)]
+    buys["mid"] = buys.apply(scoring._mid, axis=1)
+    rows = []
+    for person, g in buys.groupby("person"):
+        vol = g["mid"].sum()
+        if vol < config.TOP_MIN_BUY_VOLUME:
+            continue
+        ev = g.drop_duplicates(["ticker", "filed"])
+        ex = pd.Series([_excess_from(prices, t, f, 365) for t, f in zip(ev["ticker"], ev["filed"])]).dropna()
+        n, avg = len(ex), (ex.mean() if len(ex) else float("nan"))
+        hit = (ex > 0).mean() if n else float("nan")
+        avg_buy = vol / max(len(ev), 1)
+        rows.append({"person": person, "source": g["source"].iloc[0], "buy_volume": vol, "buys": len(ev),
+                     "avg_buy": avg_buy,
+                     "n_rated": n, "avg_excess_1y": avg, "hit_rate_1y": hit,
+                     "is_top": bool(n >= config.TOP_MIN_TRADES and avg >= config.TOP_MIN_EXCESS
+                                    and hit >= config.TOP_MIN_HIT_RATE and avg_buy >= config.TOP_MIN_AVG_BUY)})
+    df = pd.DataFrame(rows)
+    return df.sort_values(["is_top", "buy_volume"], ascending=False).reset_index(drop=True) if len(df) else df

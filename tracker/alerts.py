@@ -80,7 +80,8 @@ def new_trades(current: pd.DataFrame) -> tuple[pd.DataFrame, set[str]]:
 
 
 # --------------------------------------------------------------------------- Mail-Inhalt
-def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | None) -> tuple[str, str] | None:
+def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | None,
+                 chances: list[dict] | None = None) -> tuple[str, str] | None:
     """Wählt die neuen Käufe aus, sortiert nach Score und übergibt an das Newsletter-Layout."""
     from tracker import newsletter
 
@@ -88,8 +89,9 @@ def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | 
     sells = new[new["type"].isin(["Verkauf", "Teilverkauf"])]   # Scans mit unklarer Art nicht mitzählen
     wl = set(watchlist())
     watch_sells = sells[sells["ticker"].isin(wl)]
-    if buys.empty and watch_sells.empty:
-        return None  # nur Verkäufe (ohne Bezug zu deiner Watchlist) -> keine Mail
+    chances = chances or []
+    if buys.empty and watch_sells.empty and not chances:
+        return None  # nichts Neues -> keine Mail
 
     rk = ranking.set_index("ticker") if len(ranking) else pd.DataFrame()
 
@@ -105,7 +107,7 @@ def build_digest(new: pd.DataFrame, ranking: pd.DataFrame, dashboard_url: str | 
     buys = buys.sort_values(["_score", "ticker", "tx_date"], ascending=[False, True, False])
     strong_t = [t for t in dict.fromkeys(buys["ticker"]) if strong(t)]
     return newsletter.build(buys, sells, info, strong_t, dashboard_url, watch_sells=watch_sells,
-                            watch_buys=buys[buys["ticker"].isin(wl)])
+                            watch_buys=buys[buys["ticker"].isin(wl)], chances=chances)
 
 
 def send(subject: str, body_html: str, attachment: str | None = None) -> None:
@@ -125,12 +127,19 @@ def send(subject: str, body_html: str, attachment: str | None = None) -> None:
         s.send_message(msg)
 
 
+def new_chances(chances: dict | None, limit: int = 12) -> list[dict]:
+    """Neue Chancen von heute (noch nie gemeldet), beste zuerst."""
+    rows = [r for r in (chances or {}).get("rows", []) if r.get("is_new")]
+    return sorted(rows, key=lambda r: -r["score"])[:limit]
+
+
 def run(current: pd.DataFrame, ranking: pd.DataFrame, dashboard_path: str, *, dry_run=False,
-        test=False, log=print):
+        test=False, log=print, chances: dict | None = None):
     """test=True: Beispiel-Mail mit allen Käufen der letzten 10 Tage, Status bleibt unverändert."""
     if test:
         new = current[current["filed"] >= dt.date.today() - dt.timedelta(days=10)]
-        digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"))
+        top = sorted((chances or {}).get("rows", []), key=lambda r: -r["score"])[:8]
+        digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"), top)
         if digest is None:
             log("  Test-Mail: keine Käufe in den letzten 10 Tagen")
             return
@@ -142,7 +151,7 @@ def run(current: pd.DataFrame, ranking: pd.DataFrame, dashboard_path: str, *, dr
         log(f"  Test-Mail verschickt: {subject}")
         return
     new, keys = new_trades(current)
-    digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"))
+    digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"), new_chances(chances))
     if digest is None:
         log("  Mail: keine neuen Trades, nichts verschickt")
     elif not dry_run and not (os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD")):
@@ -229,7 +238,29 @@ def send_failure(run_url: str) -> None:
 
 
 # --------------------------------------------------------------------------- Automatik
-def auto(current, ranking, dashboard_path, prices, log=print) -> None:
+def instant_top(current: pd.DataFrame, ranking: pd.DataFrame, tops: set[str], meta: dict, log=print) -> None:
+    """Sofort-Mail bei JEDEM neu gemeldeten Kauf eines Top-Traders (unabhängig vom Score)."""
+    if not tops:
+        return
+    recent = current[(current["filed"] >= dt.date.today() - dt.timedelta(days=NEW_WINDOW_DAYS))
+                     & (current["type"] == "Kauf") & current["person"].isin(tops) & current["ticker"].notna()]
+    keys = recent.apply(lambda r: trade_key(r.to_dict()), axis=1) if len(recent) else pd.Series(dtype=str)
+    done = set(meta.get("alerted_top", []))
+    first_run = "alerted_top" not in meta
+    new = recent[~keys.isin(done)] if len(recent) else recent
+    meta["alerted_top"] = sorted(done | set(keys))[-5000:]
+    if first_run or new.empty:
+        return  # beim allerersten Lauf nur merken
+    digest = build_digest(new, ranking, os.environ.get("DASHBOARD_URL"))
+    if not digest:
+        return
+    who = ", ".join(dict.fromkeys(new["person"]))
+    what = ", ".join(dict.fromkeys(new["ticker"]))
+    send(f"⭐ Top-Trader kauft: {who} – {what}", digest[1])
+    log(f"  Top-Trader-Alarm verschickt: {who} – {what}")
+
+
+def auto(current, ranking, dashboard_path, prices, chances=None, top_traders=None, log=print) -> None:
     """Wird bei jedem (3-stündlichen) Lauf aufgerufen und entscheidet, was verschickt wird."""
     if not (os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD")):
         raise SystemExit("GMAIL_USER / GMAIL_APP_PASSWORD fehlen - in den GitHub-Secrets eintragen.")
@@ -238,11 +269,12 @@ def auto(current, ranking, dashboard_path, prices, log=print) -> None:
     today = now.date().isoformat()
     meta = load_meta()
 
+    instant_top(current, ranking, top_traders or set(), meta, log)
     instant(current, ranking, meta, log)
     log_signals(ranking)
 
     if now.hour >= DIGEST_HOUR and meta.get("last_digest") != today:
-        run(current, ranking, dashboard_path, log=log)   # Tagesmail
+        run(current, ranking, dashboard_path, log=log, chances=chances)   # Tagesmail
         meta["last_digest"] = today
 
     if now.weekday() == 0 and now.hour >= DIGEST_HOUR and meta.get("last_weekly") != today:

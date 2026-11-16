@@ -114,18 +114,62 @@ def _watch_block(watch_sells: pd.DataFrame, watch_buys: pd.DataFrame) -> str:
             f"</div></td></tr>")
 
 
+FLAGS = {"us": "🇺🇸", "de": "🇩🇪", "fr": "🇫🇷", "nl": "🇳🇱", "es": "🇪🇸", "it": "🇮🇹", "be": "🇧🇪", "fi": "🇫🇮",
+         "ch": "🇨🇭", "se": "🇸🇪", "dk": "🇩🇰", "no": "🇳🇴", "gb": "🇬🇧", "at": "🇦🇹"}
+
+
+def _chances_block(chances: list[dict]) -> str:
+    """Neue Chancen aus dem Screener als Karten."""
+    if not chances:
+        return ""
+    cards = []
+    for c in chances:
+        sc = float(c["score"])
+        facts = []
+        if c.get("dd52") is not None:
+            facts.append(f"{c['dd52'] * 100:+.0f} % vs. 52W-Hoch")
+        if c.get("rev_growth") is not None:
+            facts.append(f"Umsatz {c['rev_growth'] * 100:+.0f} %")
+        if c.get("forward_pe"):
+            facts.append(f"KGV {c['forward_pe']:.0f}")
+        why = " · ".join(e(x) for x in (c.get("reasons") or [])[:2])
+        note = "" if c.get("backtested") else " · Europa: nicht im Backtest"
+        cards.append(
+            f"<tr><td class='line' style='padding:14px 0;border-bottom:1px solid {LINE}'>"
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr><td valign='top'>"
+            f"<span class='ink' style='font-size:17px;font-weight:800;color:{INK}'>{e(c['ticker'])}</span> "
+            f"{FLAGS.get(c.get('region'), '')} <span class='mut' style='font-size:13px;color:{MUTED}'>{e(str(c.get('name', ''))[:30])}</span>"
+            f"<div style='margin-top:4px'><span style='display:inline-block;background:{NAVY};color:#ffffff;border-radius:999px;"
+            f"padding:2px 9px;font-size:11px;font-weight:700'>{e(c['strategy_label'])}</span>"
+            f"<span class='mut' style='font-size:11px;color:{MUTED}'>&nbsp; {e(c.get('horizon', ''))}{note}</span></div></td>"
+            f"<td align='right' valign='top' style='font-size:20px;font-weight:900;color:{_score_color(sc)};white-space:nowrap'>{sc:.0f}</td>"
+            f"</tr></table>"
+            f"<div class='mut' style='font-size:13px;line-height:1.45;color:{MUTED};margin-top:6px'>{why}</div>"
+            f"<div class='mut' style='font-size:12px;color:{MUTED};margin-top:3px'>{' · '.join(facts)}</div></td></tr>")
+    return (_section("Neue Chancen", "Screener USA + Europa")
+            + f"<tr><td style='padding:0 24px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'>"
+            + "".join(cards) + "</table></td></tr>")
+
+
 def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], dashboard_url=None,
-          watch_sells=None, watch_buys=None) -> tuple[str, str]:
+          watch_sells=None, watch_buys=None, chances=None) -> tuple[str, str]:
     """buys: neue Käufe (mit Spalte _score); info(ticker) -> Ranking-Zeile als dict."""
     today = dt.date.today()
     empty = pd.DataFrame(columns=["ticker", "person", "amount_low", "amount_high"])
     watch_sells = empty if watch_sells is None else watch_sells
     watch_buys = empty if watch_buys is None else watch_buys
-    if buys.empty:  # nur Watchlist-Verkäufe
-        rows = [_header("Verkauf in deiner Watchlist", "Politiker haben Aktien verkauft, die du beobachtest.",
-                        dashboard_url), _watch_block(watch_sells, watch_buys),
+    chances = chances or []
+    if buys.empty:  # keine neuen Politiker-Käufe: nur Chancen und/oder Watchlist-Warnung
+        n = len(chances)
+        title = f"{n} neue Chancen" if n else "Verkauf in deiner Watchlist"
+        sub = ("Der Screener hat heute neue Einstiegs-Chancen in den USA und Europa gefunden."
+               if n else "Politiker haben Aktien verkauft, die du beobachtest.")
+        rows = [_header(title, sub, dashboard_url), _watch_block(watch_sells, watch_buys), _chances_block(chances),
                 "<tr><td style='padding:20px 24px'></td></tr>"]
-        return f"{BRAND} · ⚠ Watchlist: Verkauf {', '.join(dict.fromkeys(watch_sells['ticker']))}", _shell(rows)
+        subject = f"{BRAND} · {n} neue Chancen" + (f" · Top: {chances[0]['ticker']}" if n else "")
+        if len(watch_sells):
+            subject = f"⚠ {subject} · Watchlist: Verkauf {', '.join(dict.fromkeys(watch_sells['ticker']))}"
+        return subject, _shell(rows)
     tickers = list(dict.fromkeys(buys["ticker"]))
     top = tickers[0]
     ti = info(top)
@@ -163,6 +207,7 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
         f"<tr>{t[2]}{gap}{t[3]}</tr></table></td></tr>")
 
     rows.append(_watch_block(watch_sells, watch_buys))
+    rows.append(_chances_block(chances))
 
     # ---------------------------------------------------------------- Top-Signal des Tages
     if ti:
@@ -288,7 +333,7 @@ def build(buys: pd.DataFrame, sells: pd.DataFrame, info, strong_t: list[str], da
 
     body = _shell(rows)
 
-    subject = f"{BRAND} · {len(buys)} neue Käufe"
+    subject = f"{BRAND} · {len(chances)} neue Chancen · {len(buys)} Politiker-Käufe" if chances else f"{BRAND} · {len(buys)} neue Käufe"
     subject += f" · Top: {top}" + (f" ({ti['score']:.0f})" if ti else "")
     if len(watch_sells):
         subject = "⚠ " + subject

@@ -25,6 +25,10 @@ DEPOTS = {
                "file": os.path.join("state", "portfolio_halten.csv"),
                "sim": os.path.join("state", "portfolio_halten_sim.json")},
 }
+# Depot, das nicht nach Score, sondern jedem Kauf der Top-Trader folgt (siehe update_from_trades)
+DEPOTS["top"] = {"label": "Top-Trader-Depot", "score": None, "min": 0, "hold": 365,
+                 "file": os.path.join("state", "portfolio_top.csv"),
+                 "sim": os.path.join("state", "portfolio_top_sim.json")}
 POSITION_USD = 1000
 COLS = ["ticker", "name", "signal_date", "score", "entry_date", "entry_price", "spy_entry",
         "exit_date", "exit_price", "spy_exit", "status"]
@@ -105,7 +109,7 @@ def summary(pf: pd.DataFrame, prices: pd.DataFrame) -> dict:
         last = float(r.exit_price) if r.status == "geschlossen" else (float(s.iloc[-1]) if len(s) else float(r.entry_price))
         spy_last = float(r.spy_exit) if r.status == "geschlossen" else float(spy.iloc[-1])
         ret, spy_ret = last / float(r.entry_price) - 1, spy_last / float(r.spy_entry) - 1
-        pos.append({"ticker": r.ticker, "name": r.name, "score": float(r.score), "entry_date": r.entry_date,
+        pos.append({"ticker": r.ticker, "name": r.name, "score": (float(r.score) if r.score is not None and r.score == r.score else None), "entry_date": r.entry_date,
                     "exit_date": r.exit_date if isinstance(r.exit_date, str) else None, "status": r.status,
                     "ret": ret, "spy_ret": spy_ret, "excess": ret - spy_ret})
     pos_df = pd.DataFrame(pos)
@@ -204,3 +208,62 @@ def load_sim(depot: str) -> dict | None:
         with open(f) as fh:
             return json.load(fh)
     return None
+
+
+def update_from_trades(trades: pd.DataFrame, prices: pd.DataFrame, persons: set[str], log=print) -> pd.DataFrame:
+    """Top-Trader-Depot: kauft jeden neu gemeldeten Kauf der Top-Trader nach (Ticker nur einmal gleichzeitig)."""
+    depot = "top"
+    cfg = DEPOTS[depot]
+    pf = _load(depot)
+    today = dt.date.today()
+    first_run = pf.empty
+    held = set(pf.loc[pf["status"].isin(["offen", "wartet"]), "ticker"])
+    known = set(zip(pf["ticker"], pf["signal_date"].astype(str)))
+    b = trades[(trades["type"] == "Kauf") & trades["person"].isin(persons) & trades["ticker"].notna()
+               & trades["asset_type"].isin(["ST", "OP"])]
+    # beim ersten Lauf nur Meldungen der letzten 7 Tage übernehmen, sonst gilt "ab heute"
+    b = b[b["filed"] >= today - dt.timedelta(days=7 if first_run else 30)]
+    rows = []
+    for _, r in b.sort_values("filed").iterrows():
+        key = (r["ticker"], r["filed"].isoformat())
+        if r["ticker"] in held or key in known:
+            continue
+        rows.append({"ticker": r["ticker"], "name": f"{r['ticker']} ({r['person']})",
+                     "signal_date": r["filed"].isoformat(), "score": None, "status": "wartet"})
+        held.add(r["ticker"])
+    if rows:
+        pf = pd.concat([pf, pd.DataFrame(rows)], ignore_index=True)
+        log(f"  {cfg['label']}: {len(rows)} neue Käufe ({', '.join(x['ticker'] for x in rows)})")
+    os.makedirs(os.path.dirname(cfg["file"]), exist_ok=True)
+    pf[COLS].to_csv(cfg["file"], index=False)
+    # Einstieg/Ausstieg wie bei den anderen Depots (Ranking leer -> keine Score-Signale)
+    return update(pd.DataFrame(), prices, depot, log)
+
+
+def simulate_trades(history: pd.DataFrame, prices: pd.DataFrame, persons: set[str]) -> dict:
+    """Simulation 2023–heute: jeden Kauf der (heutigen) Top-Trader am Tag nach der Meldung
+    nachkaufen, 1 Jahr halten. Achtung: Die Auswahl der Top-Trader kennt ihr späteres Ergebnis
+    (Rückschau-Effekt) – die Simulation ist deshalb zu optimistisch und nur zur Orientierung."""
+    cfg = DEPOTS["top"]
+    b = history[(history["type"] == "Kauf") & history["person"].isin(persons) & history["ticker"].notna()
+                & history["asset_type"].isin(["ST", "OP"]) & history["filed"].notna()].sort_values("filed")
+    rows, held_until, spy = [], {}, prices["SPY"]
+    for r in b.itertuples():
+        if r.ticker not in prices.columns or held_until.get(r.ticker, dt.date.min) >= r.filed:
+            continue
+        d, p = _close_after(prices[r.ticker], r.filed)
+        _, sp = _close_after(spy, r.filed)
+        if not d or not sp:
+            continue
+        xd, xp = _close_on_or_after(prices[r.ticker], d + dt.timedelta(days=cfg["hold"]))
+        _, xsp = _close_on_or_after(spy, d + dt.timedelta(days=cfg["hold"]))
+        rows.append({"ticker": r.ticker, "name": f"{r.ticker} ({r.person})", "signal_date": r.filed.isoformat(),
+                     "score": None, "entry_date": d.isoformat(), "entry_price": p, "spy_entry": sp,
+                     "exit_date": xd.isoformat() if xd else None, "exit_price": xp, "spy_exit": xsp,
+                     "status": "geschlossen" if xd else "offen"})
+        held_until[r.ticker] = d + dt.timedelta(days=cfg["hold"])
+    res = summary(pd.DataFrame(rows, columns=COLS), prices)
+    res["positions"] = res.get("positions", [])[:200]
+    with open(cfg["sim"], "w") as f:
+        json.dump(res, f, default=lambda o: None if isinstance(o, float) and math.isnan(o) else str(o))
+    return res

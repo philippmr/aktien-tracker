@@ -18,7 +18,15 @@ FIELDS = [
     "dividendYield", "recommendationMean", "numberOfAnalystOpinions", "targetMeanPrice",
     "fiftyTwoWeekHigh", "fiftyTwoWeekLow", "fiftyDayAverage", "twoHundredDayAverage", "beta",
     "heldPercentInsiders", "shortPercentOfFloat",
+    "enterpriseToRevenue", "ebitda", "totalRevenue", "earningsQuarterlyGrowth", "returnOnEquity",
+    "currency", "financialCurrency", "longName",
 ]
+
+
+def yf_symbol(t: str) -> str:
+    """US-Aktienklassen 'BRK.B' -> Yahoo 'BRK-B'; Börsenkürzel wie 'SIE.DE' bleiben."""
+    import re
+    return t.replace(".", "-") if re.fullmatch(r"[A-Z]+\.[A-Z]", t) else t
 
 
 def _one(ticker: str) -> dict:
@@ -31,7 +39,7 @@ def _one(ticker: str) -> dict:
     info = {}
     for attempt in range(3):
         try:
-            info = yf.Ticker(ticker.replace(".", "-")).info or {}
+            info = yf.Ticker(yf_symbol(ticker)).info or {}
             break
         except Exception:
             time.sleep(2 + attempt * 3)
@@ -43,10 +51,10 @@ def _one(ticker: str) -> dict:
     return out
 
 
-def load(tickers: list[str], log=print) -> pd.DataFrame:
+def load(tickers: list[str], log=print, workers: int = 4) -> pd.DataFrame:
     tickers = sorted(set(tickers))
     log(f"  Fundamentaldaten für {len(tickers)} Ticker laden ...")
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=workers) as ex:
         rows = list(ex.map(_one, tickers))
     return pd.DataFrame(rows).set_index("ticker")
 
@@ -55,7 +63,7 @@ def price_history(tickers: list[str], start) -> pd.DataFrame:
     """Schlusskurse (Spalten = Ticker) ab `start`."""
     if not tickers:
         return pd.DataFrame()
-    yt = {t: t.replace(".", "-") for t in tickers}
+    yt = {t: yf_symbol(t) for t in tickers}
     df = yf.download(list(yt.values()), start=str(start), progress=False,
                      auto_adjust=True, threads=True)
     if df.empty:

@@ -27,3 +27,13 @@ TOP_N = 150                      # so viele Aktien landen im Dashboard
 
 CACHE_DIR = "cache"
 OUTPUT_DIR = "output"
+
+# Chancen-Screener (USA + Europa). Im Backtest ohne verlässlichen Vorsprung -> standardmäßig aus.
+SCREENER_ENABLED = False
+
+# Top-Trader: nur Politiker mit großem Volumen UND gutem Track Record (ab Meldung, 1 Jahr)
+TOP_MIN_BUY_VOLUME = 2_000_000   # Kaufvolumen seit HISTORY_START_YEAR (Mitte der Spannen)
+TOP_MIN_EXCESS = 0.05            # Ø Vorsprung ggü. S&P 500 nach 1 Jahr ab Meldung
+TOP_MIN_TRADES = 8               # mindestens so viele bewertete Käufe
+TOP_MIN_HIT_RATE = 0.45          # Anteil der Käufe, die den Markt schlagen
+TOP_MIN_AVG_BUY = 50_000         # Ø Kaufbetrag: nur Trader, die mit großen Beträgen kaufen

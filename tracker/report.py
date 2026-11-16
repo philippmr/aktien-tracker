@@ -26,7 +26,7 @@ def _records(df: pd.DataFrame) -> list[dict]:
 
 
 def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame, stats: dict,
-          depots: dict | None = None) -> str:
+          depots: dict | None = None, chances: dict | None = None, top_traders: list | None = None) -> str:
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     stamp = dt.date.today().isoformat()
 
@@ -50,6 +50,8 @@ def write(ranking: pd.DataFrame, trades: pd.DataFrame, leaderboard: pd.DataFrame
         "feed": _records(feed.head(3000)),
         "leaderboard": _records(leaderboard),
         "depots": json.loads(json.dumps(depots or {}, default=_clean).replace("NaN", "null")),
+        "chances": json.loads(json.dumps(chances or {}, default=_clean).replace("NaN", "null")),
+        "top_traders": json.loads(json.dumps(top_traders or [], default=_clean).replace("NaN", "null")),
     }
     html = TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False).replace("</", "<\\/"))
     path = os.path.join(config.OUTPUT_DIR, "dashboard.html")
@@ -110,12 +112,24 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 <body>
 <div class="wrap">
 <button class="themebtn" onclick="toggleTheme()">◐ Theme</button>
-<h1>Politiker-Insider-Tracker</h1>
-<div class="sub">Aktienkäufe von US-Kongress und Regierung · Ausschuss-/Ressort-Bezug · Trefferquote · Fundamentaldaten · Stand <span id="gen"></span> · <a href="backtest.html">Backtest: Wie gut ist der Score?</a></div>
+<h1>Capitol Radar</h1>
+<div class="sub">Chancen-Screener USA + Europa · Politiker-Käufe · Musterdepots · Stand <span id="gen"></span> · <a href="backtest.html">Backtest: Wie gut ist der Score?</a></div>
 <div class="stats" id="stats"></div>
-<div class="tabs"><button class="tab on" data-t="rank">Aktien-Ranking</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button><button class="tab" data-t="pf">Musterdepot</button></div>
+<div class="tabs"><button class="tab on" data-t="ch">Chancen</button><button class="tab" data-t="rank">Politiker-Käufe</button><button class="tab" data-t="pol">Politiker-Trefferquote</button><button class="tab" data-t="feed">Alle Trades</button><button class="tab" data-t="pf">Musterdepot</button></div>
 
-<div id="rank">
+<div id="ch">
+ <div class="filters">
+  <input id="cq" placeholder="Ticker oder Name">
+  <select id="cstrat"><option value="">Alle Strategien</option></select>
+  <select id="creg"><option value="">USA + Europa</option><option value="us">nur USA</option><option value="eu">nur Europa</option><option value="de">nur Deutschland</option></select>
+  <select id="cmin"><option value="60">Score ≥ 60</option><option value="70">≥ 70</option><option value="80">≥ 80</option></select>
+  <label><input type="checkbox" id="cnew"> nur neu</label>
+ </div>
+ <div id="chInfo" class="note" style="margin:0 0 10px"></div>
+ <div class="card"><table id="ct"><thead></thead><tbody></tbody></table></div>
+</div>
+
+<div id="rank" hidden>
  <div class="filters">
   <input id="q" placeholder="Ticker, Name oder Politiker">
   <select id="sector"><option value="">Alle Sektoren</option></select>
@@ -136,6 +150,7 @@ a{color:var(--accent)}.note{color:var(--muted);font-size:12px;margin-top:14px}
 </div>
 
 <div id="pol" hidden>
+ <div id="topBox" class="card" style="padding:12px 16px;margin-bottom:12px"></div>
  <div class="filters"><input id="pq" placeholder="Politiker suchen">
   <span class="note" style="margin:0">Überrendite = Rendite eines Kaufs über <span id="hz"></span> Tage minus S&amp;P 500 (SPY) im selben Zeitraum. Nur Politiker mit genug bewerteten Käufen.</span></div>
  <div class="card"><table id="pt"><thead></thead><tbody></tbody></table></div>
@@ -173,9 +188,9 @@ try{const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.
 $("#gen").textContent = D.generated; $("#hz").textContent = D.horizon;
 $("#stats").innerHTML = Object.entries(D.stats).map(([k,v])=>`<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("");
 // Tabs; per Link direkt öffnen: #musterdepot, #politiker, #trades
-const HASH={musterdepot:"pf",politiker:"pol",trades:"feed",ranking:"rank"};
+const HASH={chancen:"ch",musterdepot:"pf",politiker:"pol",trades:"feed",ranking:"rank"};
 function showTab(t){document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.t===t));
- ["rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=t!==id);}
+ ["ch","rank","pol","feed","pf"].forEach(id=>$("#"+id).hidden=t!==id);}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{showTab(b.dataset.t);
  const h=Object.keys(HASH).find(k=>HASH[k]===b.dataset.t);try{history.replaceState(null,"","#"+h)}catch(e){}});
 if(HASH[location.hash.slice(1)])showTab(HASH[location.hash.slice(1)]);
@@ -195,6 +210,28 @@ const RC = [
  ["Sektor","sector",r=>esc(r.sector||"–")],["Marktkap.","market_cap",r=>fmtMoney(r.market_cap),1],
  ["KGV fwd","forward_pe",r=>fmtNum(r.forward_pe),1],["Analysten-Ziel","analyst_upside",r=>fmtPct(r.analyst_upside),1],
 ];
+// ------------------------------------------------------------- Chancen
+const FLAG={us:"🇺🇸",de:"🇩🇪",fr:"🇫🇷",nl:"🇳🇱",es:"🇪🇸",it:"🇮🇹",be:"🇧🇪",fi:"🇫🇮",ch:"🇨🇭",se:"🇸🇪",dk:"🇩🇰",no:"🇳🇴",gb:"🇬🇧",at:"🇦🇹"};
+const CH=(D.chances&&D.chances.rows)||[]; const CHS=(D.chances&&D.chances.stats)||{};
+[...new Set(CH.map(r=>r.strategy_label))].forEach(s=>$("#cstrat").insertAdjacentHTML("beforeend",`<option>${esc(s)}</option>`));
+$("#chInfo").innerHTML=CH.length?`Stand ${fmtDate(D.chances.date)} · ${CH.length} Chancen. Backtest der Strategien (USA): `+
+ Object.values(CHS).map(s=>`<b>${esc(s.label)}</b> ${fmtPct(s.ex365)} ggü. S&amp;P 500 / ${fmtPct(s.exq365)} ggü. Nasdaq-100 nach 1 Jahr`).join(" · ")+
+ `. Europa: gleiche Regeln, aber nicht im Backtest prüfbar.`:"Noch keine Ergebnisse – der Screener läuft einmal täglich.";
+const CC=[["Aktie","ticker",r=>`<span class="tk">${esc(r.ticker)}</span> ${FLAG[r.region]||""}${r.is_new?' <span class="tag c">neu</span>':''}<div class="nm">${esc(r.name)}</div>`],
+ ["Strategie","strategy_label",r=>esc(r.strategy_label)+`<div class="nm">${esc(r.horizon)}</div>`],["Score","score",r=>bar(r.score),1],
+ ["Unter Hoch","dd52",r=>fmtPct(r.dd52),1],["Umsatz","rev_growth",r=>fmtPct(r.rev_growth),1],["Marge","op_margin",r=>fmtPct(r.op_margin),1],
+ ["KGV","forward_pe",r=>fmtNum(r.forward_pe),1],["Marktwert","market_cap",r=>fmtMoney(r.market_cap).replace(" $"," "+(r.currency||"$")),1],
+ ["Warum?","reasons",r=>`<div class="desc">${(r.reasons||[]).slice(0,3).map(esc).join(" · ")}</div>`]];
+let cSort={k:"score",dir:-1};
+$("#ct thead").innerHTML="<tr>"+CC.map(c=>`<th class="${c[3]?'num':''}" data-k="${c[1]}">${c[0]}</th>`).join("")+"</tr>";
+$("#ct thead").onclick=e=>{const k=e.target.dataset.k;if(!k)return;cSort={k,dir:cSort.k===k?-cSort.dir:-1};renderCh();};
+function renderCh(){const q=$("#cq").value.toLowerCase(),st=$("#cstrat").value,rg=$("#creg").value,mn=+$("#cmin").value,nw=$("#cnew").checked;
+ let rows=CH.filter(r=>(!q||(r.ticker+" "+r.name).toLowerCase().includes(q))&&(!st||r.strategy_label===st)&&r.score>=mn&&(!nw||r.is_new)&&
+  (!rg||(rg==="eu"?r.region!=="us":r.region===rg)));
+ const k=cSort.k; rows.sort((a,b)=>{const x=a[k],y=b[k];if(x==null)return 1;if(y==null)return -1;return (x>y?1:x<y?-1:0)*cSort.dir;});
+ $("#ct tbody").innerHTML=rows.slice(0,400).map(r=>`<tr>${CC.map(c=>`<td class="${c[3]?'num':''}">${c[2](r)}</td>`).join("")}</tr>`).join("")||`<tr><td colspan="${CC.length}">Keine Treffer</td></tr>`;}
+["#cq","#cstrat","#creg","#cmin","#cnew"].forEach(s=>$(s).oninput=renderCh); renderCh();
+
 D.ranking.forEach((r,i)=>r._rank=i+1);
 let rSort={k:"score",dir:-1}, open=new Set();
 [...new Set(D.ranking.map(r=>r.sector).filter(Boolean))].sort().forEach(s=>$("#sector").insertAdjacentHTML("beforeend",`<option>${esc(s)}</option>`));
@@ -245,6 +282,10 @@ function renderPol(){const q=$("#pq").value.toLowerCase();
  const rows=D.leaderboard.filter(r=>!q||r.person.toLowerCase().includes(q)).sort((a,b)=>(a[pSort.k]>b[pSort.k]?1:-1)*pSort.dir);
  $("#pt tbody").innerHTML=rows.map(r=>`<tr>${PC.map(c=>`<td class="${c[3]?'num':''}">${c[2](r)}</td>`).join("")}</tr>`).join("");}
 $("#pq").oninput=renderPol; renderPol();
+{const T=(D.top_traders||[]); const tops=T.filter(t=>t.is_top);
+ $("#topBox").innerHTML=`<b>⭐ Top-Trader</b> <span class="note">(Kaufvolumen ≥ 2 Mio $, Ø Kauf ≥ 50 Tsd $, Käufe ab Meldung nach 1 Jahr im Schnitt ≥ 5 % besser als der S&amp;P 500, mind. 8 Käufe, Trefferquote ≥ 45 %)</span>
+ <table class="mini" style="margin-top:8px;min-width:600px"><thead><tr><th>Politiker</th><th class="num">Kaufvolumen</th><th class="num">Ø Kauf</th><th class="num">Käufe</th><th class="num">Ø ggü. S&amp;P 500 (1 J)</th><th class="num">Trefferquote</th><th></th></tr></thead><tbody>`+
+ T.slice(0,15).map(t=>`<tr><td>${t.is_top?"⭐ ":""}${esc(t.person)}</td><td class="num">${fmtMoney(t.buy_volume)}</td><td class="num">${fmtMoney(t.avg_buy)}</td><td class="num">${t.n_rated}/${t.buys}</td><td class="num">${fmtPct(t.avg_excess_1y)}</td><td class="num">${t.hit_rate_1y==null?"–":(t.hit_rate_1y*100).toFixed(0)+" %"}</td><td>${t.is_top?'<span class="tag c">Top</span>':''}</td></tr>`).join("")+`</tbody></table>`;}
 
 // ------------------------------------------------------------- Musterdepot
 function chart(curve){
