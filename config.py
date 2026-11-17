@@ -17,6 +17,10 @@ TRACK_RECORD_HORIZON_DAYS = 90   # Rendite eines Kaufs wird über so viele Tage 
 TRACK_RECORD_MIN_TRADES = 5      # erst ab so vielen bewerteten Käufen zählt die Trefferquote
 
 # Filter
+# Nur Käufe ab diesem Betrag (Untergrenze der gemeldeten Spanne) kommen in Mails, Ranking und Dashboard.
+# Backtest 2023-26: ab 100.000 $ im Schnitt +3,5 % (90 T) / +2,2 % (1 J) ggü. S&P 500, ~7 Käufe pro Monat.
+# Verkäufe bleiben unberührt. 0 = alle Käufe.
+MIN_BUY_AMOUNT = 100_000
 MIN_MARKET_CAP = 2_000_000_000   # Small Caps raus: liefen im Backtest deutlich schlechter (−5 bis −9 % ggü. Markt)
 
 # Gewichtung im Gesamt-Score (Summe = 1)

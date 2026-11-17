@@ -207,3 +207,10 @@ def test_dividend_and_crash_mail_render():
     s2, b2 = newsletter.crash_mail([{"name": "S&P 500", "drawdown": -0.26, "level": 25}],
                                    [{"name": "S&P 500", "drawdown": -0.26}])
     assert "-26" in s2 or "−26" in s2
+
+
+def test_big_buys_only():
+    df = pd.DataFrame({"type": ["Kauf", "Kauf", "Verkauf", "Kauf"],
+                       "amount_low": [1001, 100001, 1001, 1000001]})
+    out = scoring.big_buys_only(df, 100_000)
+    assert list(out["amount_low"]) == [100001, 1001, 1000001]

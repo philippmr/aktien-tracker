@@ -61,6 +61,9 @@ def main():
     since = today - dt.timedelta(days=args.days)
     current = hist[hist["filed"] >= since]
     print(f"  {len(hist)} Trades gesamt, {len(current)} in den letzten {args.days} Tagen gemeldet")
+    # nur große Käufe in Ranking, Mails und Dashboard (Historie für Trefferquoten bleibt vollständig)
+    current = scoring.big_buys_only(current, config.MIN_BUY_AMOUNT)
+    print(f"  davon {int((current['type'] == 'Kauf').sum())} Käufe ab {config.MIN_BUY_AMOUNT:,.0f} $".replace(",", "."))
 
     print("2/5 Ausschüsse laden")
     try:
@@ -112,6 +115,7 @@ def main():
         "Politiker aktiv": current["person"].nunique(),
         "Bewertete Aktien": len(ranking),
         "Zeitraum": f"letzte {args.days} Tage",
+        "Käufe ab": f"{config.MIN_BUY_AMOUNT:,.0f} $".replace(",", "."),
     }
     # Top-Trader: großes Volumen + guter Track Record (ab Meldung, 1 Jahr)
     tops_df = performance.top_traders(hist, prices)

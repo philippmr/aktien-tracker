@@ -318,3 +318,11 @@ def rank(trades: pd.DataFrame, fund: pd.DataFrame, prices: pd.DataFrame, sig: Po
         return df
     # Gleichstand (z. B. mehrere mit 100) nach dem Politiker-Signal auflösen
     return df.sort_values(["score", "insider_score"], ascending=False).reset_index(drop=True)
+
+
+def big_buys_only(df, min_amount: float):
+    """Käufe unter `min_amount` (Untergrenze der Spanne) entfernen; Verkäufe und andere Zeilen bleiben."""
+    if not min_amount or df is None or not len(df):
+        return df
+    small = (df["type"] == "Kauf") & (df["amount_low"].fillna(0) < min_amount)
+    return df[~small]
