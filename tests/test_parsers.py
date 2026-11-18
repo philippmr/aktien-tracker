@@ -214,3 +214,16 @@ def test_big_buys_only():
                        "amount_low": [1001, 100001, 1001, 1000001]})
     out = scoring.big_buys_only(df, 100_000)
     assert list(out["amount_low"]) == [100001, 1001, 1000001]
+
+
+def test_portfolio_entry_into_empty_date_columns(tmp_path, monkeypatch):
+    """Regression: leere entry_date-Spalte wurde als float gelesen -> TypeError beim Eintragen des Datums."""
+    from tracker import portfolio
+    f = tmp_path / "pf.csv"
+    f.write_text("ticker,name,signal_date,score,entry_date,entry_price,spy_entry,exit_date,exit_price,spy_exit,status\n"
+                 "AAA,Test,2026-01-05,90,,,,,,,wartet\n")
+    monkeypatch.setitem(portfolio.DEPOTS["trade"], "file", str(f))
+    idx = pd.bdate_range("2026-01-01", "2026-01-20")
+    prices = pd.DataFrame({"AAA": 10.0, "SPY": 500.0}, index=idx)
+    pf = portfolio.update(pd.DataFrame(columns=["ticker", "name", "trade_score"]), prices, "trade")
+    assert pf.loc[0, "status"] == "offen" and pf.loc[0, "entry_date"] == "2026-01-06"

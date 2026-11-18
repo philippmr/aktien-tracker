@@ -37,7 +37,11 @@ COLS = ["ticker", "name", "signal_date", "score", "entry_date", "entry_price", "
 def _load(depot: str) -> pd.DataFrame:
     f = DEPOTS[depot]["file"]
     if os.path.exists(f):
-        return pd.read_csv(f, dtype={"ticker": str})
+        # Text-/Datumsspalten fest als Text lesen: Sind sie noch leer, würde pandas sie sonst als Zahl
+        # anlegen, und das Eintragen eines Datums schlägt mit neueren pandas-Versionen fehl.
+        text = {c: object for c in ("ticker", "name", "signal_date", "entry_date", "exit_date", "status",
+                                    "person", "filed", "tx_date")}
+        return pd.read_csv(f, dtype=text)
     return pd.DataFrame(columns=COLS)
 
 
