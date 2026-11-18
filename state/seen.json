@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-17T07:55:17",
+"updated": "2026-11-18T11:47:40",
 "seen": [
 "Exekutive|$FILE|Arjun Mody|ACN|2026-06-02|Verkauf|1001.0|",
 "Exekutive|$FILE|Arjun Mody|ADBE|2026-06-02|Verkauf|1001.0|",
@@ -938,6 +938,12 @@
 "House|20035788|Gilbert Cisneros|nan|2026-11-04|Kauf|250001.0|Selbst",
 "House|20035806|Julie Johnson|WBD|2026-10-07|Verkauf|1001.0|Gemeinsam",
 "House|20035807|James Hill|JBGS|2026-11-09|Verkauf|1001.0|Selbst",
+"House|20035811|Byron Donalds|ADSK|2026-10-02|Verkauf|1001.0|Ehepartner",
+"House|20035811|Byron Donalds|ADSK|2026-10-02|Verkauf|1001.0|Selbst",
+"House|20035811|Byron Donalds|NFLX|2026-10-02|Verkauf|1001.0|Ehepartner",
+"House|20035811|Byron Donalds|NFLX|2026-10-02|Verkauf|1001.0|Selbst",
+"House|20035811|Byron Donalds|ZTS|2026-10-02|Verkauf|1001.0|Ehepartner",
+"House|20035811|Byron Donalds|ZTS|2026-10-02|Verkauf|1001.0|Selbst",
 "House|20035821|Richard Allen|SHW|2026-10-09|Teilverkauf|1001.0|Ehepartner",
 "House|20035821|Richard Allen|nan|2026-10-02|Kauf|15001.0|Selbst",
 "House|20035826|Lloyd Doggett|KO|2026-10-01|Kauf|1001.0|Selbst",
@@ -959,6 +965,8 @@
 "Senat|0541be4f-4f96-4d84-8d6f-d349f218bb2a|John Fetterman|nan|2026-09-15|Kauf|1001.0|Child",
 "Senat|0541be4f-4f96-4d84-8d6f-d349f218bb2a|John Fetterman|nan|2026-09-16|Kauf|1001.0|Child",
 "Senat|0a93a20c-2a0f-4979-80ca-cc2f61297527|James Conley Justice, II|nan|2026-08-14|Teilverkauf|50000000.0|Self",
+"Senat|21941188-c04d-4713-8e6f-d954918e93fd|John Boozman|CMBS|2026-10-21|Teilverkauf|1001.0|Joint",
+"Senat|21941188-c04d-4713-8e6f-d954918e93fd|John Boozman|TLH|2026-10-21|Teilverkauf|1001.0|Joint",
 "Senat|3ab689df-21ae-44c5-85ac-1f5e4bc8464d|David H McCormick|nan|2026-09-30|Verkauf|100001.0|Spouse",
 "Senat|3ab689df-21ae-44c5-85ac-1f5e4bc8464d|David H McCormick|nan|2026-10-01|Kauf|500001.0|Self",
 "Senat|3ab689df-21ae-44c5-85ac-1f5e4bc8464d|David H McCormick|nan|2026-10-06|Kauf|100001.0|Spouse",

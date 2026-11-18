@@ -1,9 +1,9 @@
 ticker,name,signal_date,score,entry_date,entry_price,spy_entry,exit_date,exit_price,spy_exit,status
-GOOGL,Alphabet Inc.,2026-11-16,99.1,,,,,,,wartet
-NVDA,NVIDIA Corporation,2026-11-16,96.0,,,,,,,wartet
-MSFT,Microsoft Corporation,2026-11-16,78.5,,,,,,,wartet
-META,"Meta Platforms, Inc.",2026-11-16,87.1,,,,,,,wartet
-AMAT,"Applied Materials, Inc.",2026-11-16,81.5,,,,,,,wartet
-TSM,Taiwan Semiconductor Manufactur,2026-11-16,79.8,,,,,,,wartet
-CMCSA,Comcast Corporation,2026-11-16,84.0,,,,,,,wartet
-PG,Procter & Gamble Company (The),2026-11-16,73.7,,,,,,,wartet
+GOOGL,Alphabet Inc.,2026-11-16,99.1,2026-11-17,280.20001220703125,732.4400024414062,,,,offen
+NVDA,NVIDIA Corporation,2026-11-16,96.0,2026-11-17,155.4600067138672,732.4400024414062,,,,offen
+MSFT,Microsoft Corporation,2026-11-16,78.5,2026-11-17,506.239990234375,732.4400024414062,,,,offen
+META,"Meta Platforms, Inc.",2026-11-16,87.1,2026-11-17,618.8699951171875,732.4400024414062,,,,offen
+AMAT,"Applied Materials, Inc.",2026-11-16,81.5,2026-11-17,349.2300109863281,732.4400024414062,,,,offen
+TSM,Taiwan Semiconductor Manufactur,2026-11-16,79.8,2026-11-17,359.69000244140625,732.4400024414062,,,,offen
+CMCSA,Comcast Corporation,2026-11-16,84.0,2026-11-17,25.309999465942383,732.4400024414062,,,,offen
+PG,Procter & Gamble Company (The),2026-11-16,73.7,2026-11-17,171.72000122070312,732.4400024414062,,,,offen
