@@ -1,5 +1,10 @@
 {
  "alerted": [
+  "Exekutive|$FILE|Donald Trump|APH|2026-11-19|Kauf|100001.0|",
+  "Exekutive|$FILE|Donald Trump|CME|2026-11-19|Kauf|100001.0|",
+  "Exekutive|$FILE|Donald Trump|NRG|2026-11-19|Kauf|250001.0|",
+  "Exekutive|$FILE|Donald Trump|ORCL|2026-09-01|Kauf|100001.0|",
+  "Exekutive|$FILE|Donald Trump|ORCL|2026-09-02|Kauf|100001.0|",
   "House|20035788|Gilbert Cisneros|CMCSA|2026-10-20|Kauf|1001.0|Selbst",
   "House|20035788|Gilbert Cisneros|CSCO|2026-10-20|Kauf|1001.0|Selbst",
   "House|20035788|Gilbert Cisneros|FIS|2026-10-20|Kauf|1001.0|Selbst",
@@ -11,11 +16,11 @@
   "House|20035831|David Taylor|GOOGL|2026-11-03|Kauf|1001.0|Selbst",
   "House|20035831|David Taylor|LRCX|2026-11-05|Kauf|1001.0|Selbst"
  ],
- "last_digest": "2026-11-18",
+ "last_digest": "2026-11-19",
  "alerted_top": [],
  "last_weekly": "2026-11-16",
  "crash": {
   "DAX": 0
  },
- "last_div": "2026-11-18"
+ "last_div": "2026-11-19"
 }
