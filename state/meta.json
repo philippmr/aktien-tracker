@@ -20,7 +20,8 @@
  "alerted_top": [],
  "last_weekly": "2026-11-16",
  "crash": {
-  "DAX": 0
+  "DAX": 0,
+  "Nasdaq 100": 15
  },
  "last_div": "2026-11-19"
 }
