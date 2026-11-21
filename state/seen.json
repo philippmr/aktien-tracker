@@ -1,5 +1,5 @@
 {
-"updated": "2026-11-20T11:41:37",
+"updated": "2026-11-21T11:04:42",
 "seen": [
 "Exekutive|$FILE|Arjun Mody|ACN|2026-06-02|Verkauf|1001.0|",
 "Exekutive|$FILE|Arjun Mody|ADBE|2026-06-02|Verkauf|1001.0|",
@@ -662,6 +662,7 @@
 "Exekutive|$FILE|Kevin Warsh|nan|2026-08-13|Kauf|50001.0|",
 "Exekutive|$FILE|Kevin Warsh|nan|2026-08-14|Kauf|50001.0|",
 "Exekutive|$FILE|Kevin Warsh|nan|2026-09-18|Kauf|50001.0|",
+"Exekutive|$FILE|Lee Zeldin|nan|2026-09-23|Verkauf|1001.0|",
 "Exekutive|$FILE|Michael Kratsios|MUB|2026-09-10|Kauf|1001.0|",
 "Exekutive|$FILE|Michael Kratsios|SCHP|2026-09-10|Kauf|15001.0|",
 "Exekutive|$FILE|Michael Kratsios|nan|2026-09-10|Verkauf|1001.0|",
@@ -1225,6 +1226,22 @@
 "Senat|7dfdae57-9401-4bf1-9059-85d1e5ee4a84|John Boozman|SPYM|2026-09-09|Teilverkauf|1001.0|Joint",
 "Senat|7dfdae57-9401-4bf1-9059-85d1e5ee4a84|John Boozman|TLH|2026-09-21|Teilverkauf|1001.0|Joint",
 "Senat|7dfdae57-9401-4bf1-9059-85d1e5ee4a84|John Boozman|VEA|2026-09-09|Teilverkauf|1001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-06|Kauf|100001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-06|Kauf|250001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-06|Kauf|500001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-06|Verkauf|1001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-07|Kauf|100001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-07|Kauf|250001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-07|Kauf|500001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-08|Kauf|500001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-13|Kauf|250001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-14|Kauf|250001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-14|Kauf|500001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-15|Kauf|250001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-16|Kauf|500001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-21|Kauf|100001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-22|Kauf|500001.0|Joint",
+"Senat|8f97b859-75e2-4739-8392-d375744aea97|Alan Armstrong|nan|2026-10-26|Kauf|250001.0|Joint",
 "Senat|94c5f7b9-cdbc-40b4-aeba-de920da58588|John Boozman|CMBS|2026-09-09|Kauf|1001.0|Joint",
 "Senat|94c5f7b9-cdbc-40b4-aeba-de920da58588|John Boozman|CSCO|2026-09-24|Kauf|1001.0|Joint",
 "Senat|94c5f7b9-cdbc-40b4-aeba-de920da58588|John Boozman|GIGB|2026-09-09|Kauf|1001.0|Joint",
@@ -1268,6 +1285,7 @@
 "Senat|e67780bf-56e4-46f0-a81e-574a701dd539|Richard Blumenthal|nan|2026-10-07|Kauf|100001.0|Spouse",
 "Senat|e67780bf-56e4-46f0-a81e-574a701dd539|Richard Blumenthal|nan|2026-10-07|Kauf|1001.0|Spouse",
 "Senat|e67780bf-56e4-46f0-a81e-574a701dd539|Richard Blumenthal|nan|2026-10-07|Kauf|15001.0|Spouse",
-"Senat|e67780bf-56e4-46f0-a81e-574a701dd539|Richard Blumenthal|nan|2026-10-07|Kauf|50001.0|Spouse"
+"Senat|e67780bf-56e4-46f0-a81e-574a701dd539|Richard Blumenthal|nan|2026-10-07|Kauf|50001.0|Spouse",
+"Senat|f0f7eba0-ca09-4b80-a97b-64b6dafb835e|Rafael E Cruz|GS|2026-11-11|Teilverkauf|250001.0|Spouse"
 ]
 }
